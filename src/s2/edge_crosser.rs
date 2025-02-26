@@ -58,8 +58,8 @@ impl EdgeCrosser {
         let b_tangent = Point(norm.cross(&b.0));
 
         EdgeCrosser {
-            a: a,
-            b: b,
+            a: *a,
+            b: *b,
             aXb: Point(norm),
             a_tangent,
             b_tangent,
@@ -84,7 +84,7 @@ impl EdgeCrosser {
     // ChainCrossingSign below.
     pub fn CrossingSign(&mut self, c: Point, d: Point) -> Crossing {
         if c != self.c {
-            self.RestartAt(c)
+            self.RestartAt(&c)
         }
         self.ChainCrossingSign(d)
     }
@@ -113,22 +113,22 @@ impl EdgeCrosser {
     // whether the first vertex of the current edge is the same as the second vertex of the
     // previous edgself.
     pub fn NewChainEdgeCrosser(a: &Point, b: &Point, c: &Point) -> EdgeCrosser {
-        let mut e = EdgeCrosser::new(&a, b);
-        e.RestartAt(c);
+        let mut e = EdgeCrosser::new(a, b);
+        e.RestartAt(*c);
         e
     }
 
     // RestartAt sets the current point of the edge crosser to be c.
     // Call this method when your chain 'jumps' to a new placself.
     // The argument must point to a value that persists until the next call.
-    pub fn RestartAt(&mut self, c: &Point) {
-        self.c = *c;
+    pub fn RestartAt(&mut self, c: Point) {
+        self.c = c;
         self.acb = -triage_sign(&self.a, &self.b, &self.c);
     }
 
     // ChainCrossingSign is like CrossingSign, but uses the last vertex passed to one of
     // the crossing methods (or RestartAt) as the first vertex of the current edgself.
-    pub fn ChainCrossingSign(&mut self, d: &Point) -> Crossing {
+    pub fn ChainCrossingSign(&mut self, d: Point) -> Crossing {
         // For there to be an edge crossing, the triangles ACB, CBD, BDA, DAC must
         // all be oriented the same way (CW or CCW). We keep the orientation of ACB
         // as part of our statself. When each new point D arrives, we compute the
@@ -153,15 +153,16 @@ impl EdgeCrosser {
     // passed to one of the crossing methods (or RestartAt) as the first vertex of the current edgself.
     pub fn EdgeOrVertexChainCrossing(&mut self, d: Point) -> bool {
         // We need to copy self.c since it is clobbered by ChainCrossingSign.
-        match self.ChainCrossingSign(d) {
+        let c = self.c;
+        match self.ChainCrossingSign(&d) {
             Crossing::DoNotCross => false,
             Crossing::Cross => true,
-            Crossing::Maybe => VertexCrossing(&self.a, &self.b, &self.c, &d),
+            Crossing::Maybe => VertexCrossing(&self.a, &self.b, &c, &d),
         }
     }
 
     // crossingSign handle the slow path of CrossingSign.
-    pub fn crossingSign(&mut self, d: &Point, mut bda: Direction) -> Crossing {
+    pub fn crossingSign(&mut self, d: Point, mut bda: Direction) -> Crossing {
         // Compute the actual result, and then save the current vertex D as the next
         // vertex C, and save the orientation of the next triangle ACB (which is
         // opposite to the current triangle BDA).
@@ -176,61 +177,71 @@ impl EdgeCrosser {
         // is moderately expensive but still much cheaper than expensiveSign.
 
         // The error in RobustCrossProd is insignificant. The maximum error in
-        // the call to CrossProd (i.self., the maximum norm of the error vector) is
+        // the call to CrossProd (i.e., the maximum norm of the error vector) is
         // (0.5 + 1/sqrt(3)) * dblEpsilon. The maximum error in each call to
         // dotProd below is dblEpsilon. (There is also a small relative error
         // term that is insignificant because we are comparing the result against a
         // constant that is very close to zero.)
         let maxError = (1.5 + 1.0 / 3.0.sqrt()) * DBL_EPSILON;
-        let crossing_fn = || {
-            if (self.c.0.dot(self.a_tangent) > maxError && d.0.dot(self.a_tangent) > maxError)
-                || (self.c.0.dot(self.b_tangent) > maxError && d.0.dot(self.b_tangent) > maxError)
+        
+        // In Go, there's a defer statement that ensures these assignments happen
+        // at the end of the function. In Rust, we'll compute the result first and
+        // then do these assignments before returning.
+        let result = {
+            if (self.c.0.dot(&self.a_tangent.0) > maxError && d.0.dot(&self.a_tangent.0) > maxError)
+                || (self.c.0.dot(&self.b_tangent.0) > maxError && d.0.dot(&self.b_tangent.0) > maxError)
             {
-                return Crossing::DoNotCross;
-            }
+                Crossing::DoNotCross
+            } else if self.a == self.c || self.a == d || self.b == self.c || self.b == d {
+                // Otherwise, eliminate the cases where two vertices from different edges are
+                // equal. (These cases could be handled in the code below, but we would rather
+                // avoid calling ExpensiveSign if possible.)
+                Crossing::Maybe
+            } else if self.a == self.b || self.c == d {
+                // Eliminate the cases where an input edge is degenerate. (Note that in
+                // most cases, if CD is degenerate then this method is not even called
+                // because acb and bda have different signs.)
+                Crossing::DoNotCross
+            } else {
+                // Otherwise it's time to break out the big guns.
+                let acb = if self.acb == Direction::Indeterminate {
+                    let sign = -expensive_sign(&self.a, &self.b, &self.c);
+                    self.acb = sign;
+                    sign
+                } else {
+                    self.acb
+                };
+                
+                let bda_val = if bda == Direction::Indeterminate {
+                    let sign = expensive_sign(&self.a, &self.b, &d);
+                    bda = sign;
+                    sign
+                } else {
+                    bda
+                };
 
-            // Otherwise, eliminate the cases where two vertices from different edges are
-            // equal. (These cases could be handled in the code below, but we would rather
-            // avoid calling ExpensiveSign if possiblself.)
-            if self.a == self.c || self.a == d || self.b == self.c || self.b == d {
-                return Crossing::Maybe;
+                if bda_val != acb {
+                    Crossing::DoNotCross
+                } else {
+                    let cbd = -robust_sign(&self.c, &d, &self.b);
+                    if cbd != acb {
+                        Crossing::DoNotCross
+                    } else {
+                        let dac = robust_sign(&self.c, &d, &self.a);
+                        if dac != acb {
+                            Crossing::DoNotCross
+                        } else {
+                            Crossing::Cross
+                        }
+                    }
+                }
             }
-
-            // Eliminate the cases where an input edge is degeneratself. (Note that in
-            // most cases, if CD is degenerate then this method is not even called
-            // because acb and bda have different signs.)
-            if self.a == self.b || self.c == d {
-                return Crossing::DoNotCross;
-            }
-
-            // Otherwise it's time to break out the big guns.
-            if self.acb == Direction::Indeterminate {
-                self.acb = -expensive_sign(self.a, self.b, self.c)
-            }
-            if bda == Direction::Indeterminate {
-                bda = expensive_sign(self.a, self.b, d)
-            }
-
-            if bda != self.acb {
-                return Crossing::DoNotCross;
-            }
-
-            let cbd = -robust_sign(self.c, d, self.b);
-            if cbd != self.acb {
-                return Crossing::DoNotCross;
-            }
-            let dac = robust_sign(self.c, d, self.a);
-            if dac != self.acb {
-                return Crossing::DoNotCross;
-            }
-            return Crossing::Cross;
         };
 
-        let crossing = crossing_fn();
-
+        // Equivalent to the defer statement in Go
         self.c = d;
         self.acb = -bda;
 
-        crossing
+        result
     }
 }
