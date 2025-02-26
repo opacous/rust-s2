@@ -482,26 +482,43 @@ mod tests {
         // the direction AB with the vector AX, where both vectors are treated as
         // Euclidean (not spherical).
 
+        println!("Computing distance from {:?} to segment [{:?}, {:?}]", x, a, b);
+        
         if a == b {
-            return x.distance(a);
+            let dist = x.distance(a);
+            println!("Degenerate segment, returning distance to endpoint: {}", dist.0);
+            return dist;
         }
 
         let ab = b.0.sub(a.0);
         let ax = x.0.sub(a.0);
         let ab_norm2 = ab.norm2();
         let ax_dot_ab = ax.dot(&ab);
+        
+        println!("ab_norm2: {}", ab_norm2);
+        println!("ax_dot_ab: {}", ax_dot_ab);
 
         // Handle cases (2) and (3).
         if ax_dot_ab <= 0.0 {
-            return x.distance(a); // Closest to endpoint A.
+            let dist = x.distance(a);
+            println!("Closest to endpoint A, distance: {}", dist.0);
+            return dist;
         }
         if ax_dot_ab >= ab_norm2 {
-            return x.distance(b); // Closest to endpoint B.
+            let dist = x.distance(b);
+            println!("Closest to endpoint B, distance: {}", dist.0);
+            return dist;
         }
 
         // The closest point is the projection of X onto AB.
         let p = a.0.add(ab.mul(ax_dot_ab / ab_norm2));
-        x.distance(&Point(p.normalize()))
+        let normalized_p = p.normalize();
+        println!("Projection point before normalization: {:?}", p);
+        println!("Projection point after normalization: {:?}", normalized_p);
+        
+        let dist = x.distance(&Point(normalized_p));
+        println!("Distance to projection: {}", dist.0);
+        return dist
     }
 
     // Returns a random orthonormal frame (three orthogonal unit-length vectors).
@@ -527,7 +544,18 @@ mod tests {
         // Create a right-handed coordinate system.
         let third = Point(dir.0.cross(&ortho.0));
         
-        [dir, ortho, third]
+        let frame = [dir, ortho, third];
+        
+        println!("Random frame:");
+        println!("  f[0] (p): {:?}, norm: {}", frame[0], frame[0].0.norm());
+        println!("  f[1] (d1): {:?}, norm: {}", frame[1], frame[1].0.norm());
+        println!("  f[2] (d2): {:?}, norm: {}", frame[2], frame[2].0.norm());
+        println!("  Orthogonality check:");
+        println!("    f[0]·f[1]: {}", frame[0].0.dot(&frame[1].0));
+        println!("    f[0]·f[2]: {}", frame[0].0.dot(&frame[2].0));
+        println!("    f[1]·f[2]: {}", frame[1].0.dot(&frame[2].0));
+        
+        frame
     }
 
     // Returns a random number in [0,1).
@@ -599,6 +627,7 @@ mod tests {
             let mut d2 = f[2];
 
             let slope = 1e-15 * (1e30_f64).powf(random_float64());
+            println!("Slope used: {}", slope);
             d2 = Point(d1.0.add(d2.0.mul(slope)).normalize());
             
             // Find a pair of segments that cross.
@@ -616,6 +645,9 @@ mod tests {
                     c_fraction = 1.0 - c_fraction;
                 }
                 
+                println!("ab_len: {}, cd_len: {}", ab_len, cd_len);
+                println!("a_fraction: {}, c_fraction: {}", a_fraction, c_fraction);
+                
                 let a = Point(p.0.sub(d1.0.mul(a_fraction * ab_len)).normalize());
                 let b = Point(p.0.add(d1.0.mul((1.0 - a_fraction) * ab_len)).normalize());
                 let c = Point(p.0.sub(d2.0.mul(c_fraction * cd_len)).normalize());
@@ -623,6 +655,11 @@ mod tests {
                 
                 let mut crosser = EdgeCrosser::new(&a, &b);
                 if crosser.CrossingSign(c, d) == Crossing::Cross {
+                    println!("Found crossing segments:");
+                    println!("  a: {:?}", a);
+                    println!("  b: {:?}", b);
+                    println!("  c: {:?}", c);
+                    println!("  d: {:?}", d);
                     break (a, b, c, d);
                 }
             };
@@ -630,8 +667,15 @@ mod tests {
             // Each constructed edge should be at most 1.5 * dblEpsilon away from the
             // original point P.
             let dist_ab = distance_from_segment(&p, &a, &b);
-            // panic!("dist_ab = {}", dist_ab.0);
+            println!("Distance calculation details:");
+            println!("  p to a distance: {}", p.distance(&a).0);
+            println!("  p to b distance: {}", p.distance(&b).0);
+            println!("  |a-b|: {}", a.0.sub(b.0).norm());
+            println!("  Computed dist_ab: {}", dist_ab.0);
+            
             let want_dist = Angle(1.5 * DBL_EPSILON) + distance_abs_error;
+            println!("  Want dist: {}", want_dist.0);
+            
             assert!(dist_ab <= want_dist, 
                     "DistanceFromSegment({:?}, {:?}, {:?}) = {:.32}, want <= {:.32}",
                     p, a, b, dist_ab.0, want_dist.0);
