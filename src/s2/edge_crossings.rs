@@ -41,36 +41,47 @@ static INTERSECTION_MERGE_RADIUS : f64 = 16.0 * DBL_EPSILON;
 
 
 // A Crossing indicates how edges cross.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Crossing {
     Cross,
     Maybe,
     DoNotCross
 }
+
+impl std::fmt::Display for Crossing {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Crossing::Cross => write!(f, "Cross"),
+            Crossing::Maybe => write!(f, "MaybeCross"),
+            Crossing::DoNotCross => write!(f, "DoNotCross"),
+        }
+    }
+}
+
 impl Crossing {
-// CrossingSign reports whether the edge AB intersects the edge CD.
-// If AB crosses CD at a point that is interior to both edges, Cross is returned.
-// If any two vertices from different edges are the same it returns MaybeCross.
-// Otherwise it returns DoNotCross.
-// If either edge is degenerate (A == B or C == D), the return value is MaybeCross
-// if two vertices from different edges are the same and DoNotCross otherwise.
-//
-// Properties of CrossingSign:
-//
-//	(1) CrossingSign(b,a,c,d) == CrossingSign(a,b,c,d)
-//	(2) CrossingSign(c,d,a,b) == CrossingSign(a,b,c,d)
-//	(3) CrossingSign(a,b,c,d) == MaybeCross if a==c, a==d, b==c, b==d
-//	(3) CrossingSign(a,b,c,d) == DoNotCross or MaybeCross if a==b or c==d
-//
-// This method implements an exact, consistent perturbation model such
-// that no three points are ever considered to be collinear. This means
-// that even if you have 4 points A, B, C, D that lie exactly in a line
-// (say, around the equator), C and D will be treated as being slightly to
-// one side or the other of AB. This is done in a way such that the
-// results are always consistent (see RobustSign).
-    fn crossing_sign(a: &Point, b: &Point, c: &Point, d: &Point) -> Crossing {
-        let mut crosser = EdgeCrosser::NewChainEdgeCrosser(&a, &b, &c);
-        crosser.ChainCrossingSign(d)
+    // CrossingSign reports whether the edge AB intersects the edge CD.
+    // If AB crosses CD at a point that is interior to both edges, Cross is returned.
+    // If any two vertices from different edges are the same it returns MaybeCross.
+    // Otherwise it returns DoNotCross.
+    // If either edge is degenerate (A == B or C == D), the return value is MaybeCross
+    // if two vertices from different edges are the same and DoNotCross otherwise.
+    //
+    // Properties of CrossingSign:
+    //
+    //	(1) CrossingSign(b,a,c,d) == CrossingSign(a,b,c,d)
+    //	(2) CrossingSign(c,d,a,b) == CrossingSign(a,b,c,d)
+    //	(3) CrossingSign(a,b,c,d) == MaybeCross if a==c, a==d, b==c, b==d
+    //	(3) CrossingSign(a,b,c,d) == DoNotCross or MaybeCross if a==b or c==d
+    //
+    // This method implements an exact, consistent perturbation model such
+    // that no three points are ever considered to be collinear. This means
+    // that even if you have 4 points A, B, C, D that lie exactly in a line
+    // (say, around the equator), C and D will be treated as being slightly to
+    // one side or the other of AB. This is done in a way such that the
+    // results are always consistent (see RobustSign).
+    pub fn crossing_sign(a: &Point, b: &Point, c: &Point, d: &Point) -> Crossing {
+        let mut crosser = EdgeCrosser::NewChainEdgeCrosser(a, b, c);
+        crosser.ChainCrossingSign(*d)
     }
 }
 
@@ -129,9 +140,9 @@ pub fn VertexCrossing(a: &Point, b: &Point, c: &Point, d: &Point) -> bool {
 // EdgeOrVertexCrossing is a convenience function that calls CrossingSign to
 // handle cases where all four vertices are distinct, and VertexCrossing to
 // handle cases where two or more vertices are the same. This defines a crossing
-// fntion such that point-in-polygon containment tests can be implemented
+// function such that point-in-polygon containment tests can be implemented
 // by simply counting edge crossings.
-fn EdgeOrVertexCrossing(a: &Point, b: &Point, c: &Point, d: &Point) -> bool {
+pub fn EdgeOrVertexCrossing(a: &Point, b: &Point, c: &Point, d: &Point) -> bool {
     match Crossing::crossing_sign(a, b, c, d) {
         Crossing::DoNotCross => false,
         Crossing::Cross => true,
@@ -150,7 +161,7 @@ fn EdgeOrVertexCrossing(a: &Point, b: &Point, c: &Point, d: &Point) -> bool {
 // The returned intersection point X is guaranteed to be very close to the
 // true intersection point of AB and CD, even if the edges intersect at a
 // very small angle.
-fn Intersection(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Point {
+pub fn Intersection(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Point {
     // It is difficult to compute the intersection point of two edges accurately
     // when the angle between the edges is very small. Previously we handled
     // this by only guaranteeing that the returned intersection point is within
@@ -411,7 +422,7 @@ fn intersectionExact(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Point {
 //	    AngleContainsVertex(v_{i+1}, b, v_i) is true for exactly one value of i.
 //
 // REQUIRES: a != b && b != c
-pub fn angle_contains_vertex(a: &Point, b: &Point, c: &Point) -> bool {
+pub fn AngleContainsVertex(a: &Point, b: &Point, c: &Point) -> bool {
     // A loop with consecutive vertices A, B, C contains vertex B if and only if
     // the fixed vector R = referenceDir(B) is contained by the wedge ABC.  The
     // wedge is closed at A and open at C, i.e. the point B is inside the loop
@@ -420,7 +431,7 @@ pub fn angle_contains_vertex(a: &Point, b: &Point, c: &Point) -> bool {
     // Note that the test below is written so as to get correct results when the
     // angle ABC is degenerate. If A = C or C = R it returns false, and
     // otherwise if A = R it returns true.
-    return !ordered_ccw(&b.ortho(), c, a, b)
+    return !ordered_ccw(&b.referenceDir(), c, a, b)
 }
 
 // TODO(roberts): Differences from C++

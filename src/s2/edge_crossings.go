@@ -431,10 +431,10 @@ func AngleContainsVertex(a, b, c Point) bool {
 }
 
 // TODO(roberts): Differences from C++
-// func RobustCrossProd(a, b Point) Point
-// func symbolicCrossProd(a, b Point) Point
-// func exactCrossProd(a, b Point) Point
-// func SignedVertexCrossing(a, b, c, d Point) int
-// func isNormalizable(p Point) bool
-// func ensureNormalizable(p Point) Point
-// func normalizableFromPrecise(p r3.PreciseVector) Point
+// fn RobustCrossProd(a, b Point) Point
+// fn symbolicCrossProd(a, b Point) Point
+// fn exactCrossProd(a, b Point) Point
+// fn SignedVertexCrossing(a, b, c, d Point) int
+// fn isNormalizable(p Point) bool
+// fn ensureNormalizable(p Point) Point
+// fn normalizableFromPrecise(p r3.PreciseVector) Point
