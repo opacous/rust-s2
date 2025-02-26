@@ -449,8 +449,7 @@ mod tests {
     use super::*;
     use crate::s1::angle::Angle;
     use crate::r3::vector::Vector;
-    use rand::Rng;
-    use std::f64::consts::PI;
+    use crate::consts::DBL_EPSILON;
 
     // Helper function to create a Point from coordinates
     fn point_from_coords(x: f64, y: f64, z: f64) -> Point {
@@ -465,6 +464,87 @@ mod tests {
             x = Point(x.0.mul(-1.0));
         }
         x
+    }
+
+    // DistanceFromSegment returns the distance from point X to line segment AB.
+    fn distance_from_segment(x: &Point, a: &Point, b: &Point) -> Angle {
+        // We compute the distance using the standard formula for the distance from a
+        // point X to a line segment AB:
+        //
+        // (1) If the line AB is degenerate, return the distance to the closest endpoint.
+        //
+        // (2) Otherwise, if the projection of X onto the line AB is outside the range
+        // [0,1], then return the distance to the closest endpoint.
+        //
+        // (3) Otherwise, return the perpendicular distance from X to the line AB.
+        //
+        // Note that the projection parameter is the dot product of the unit vector in
+        // the direction AB with the vector AX, where both vectors are treated as
+        // Euclidean (not spherical).
+
+        if a == b {
+            return x.distance(a);
+        }
+
+        let ab = b.0.sub(a.0);
+        let ax = x.0.sub(a.0);
+        let ab_norm2 = ab.norm2();
+        let ax_dot_ab = ax.dot(&ab);
+
+        // Handle cases (2) and (3).
+        if ax_dot_ab <= 0 {
+            return x.distance(a); // Closest to endpoint A.
+        }
+        if ax_dot_ab >= ab_norm2 {
+            return x.distance(b); // Closest to endpoint B.
+        }
+
+        // The closest point is the projection of X onto AB.
+        let p = a.0.add(ab.mul(ax_dot_ab / ab_norm2));
+        return x.distance(&Point(p.normalize()));
+    }
+
+    // Returns a random orthonormal frame (three orthogonal unit-length vectors).
+    fn random_frame() -> [Point; 3] {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        
+        // Generate a random point on the unit sphere.
+        let dir = loop {
+            let x = rng.gen_range(-1.0..1.0);
+            let y = rng.gen_range(-1.0..1.0);
+            let z = rng.gen_range(-1.0..1.0);
+            let v = Vector::new(x, y, z);
+            let norm2 = v.norm2();
+            if norm2 > 0.0 && norm2 <= 1.0 {
+                break Point(v.normalize());
+            }
+        };
+
+        // Now choose a random orthogonal point.
+        let ortho = dir.ortho();
+        
+        // Create a right-handed coordinate system.
+        let third = Point(dir.0.cross(&ortho.0));
+        
+        [dir, ortho, third]
+    }
+
+    // Returns a random number in [0,1).
+    fn random_float64() -> f64 {
+        use rand::Rng;
+        rand::thread_rng().gen()
+    }
+
+    // Returns true with 1/n probability.
+    fn one_in(n: u32) -> bool {
+        use rand::Rng;
+        rand::thread_rng().gen_range(0..n) == 0
+    }
+
+    // Returns the maximum of two angles.
+    fn max_angle(a: Angle, b: Angle) -> Angle {
+        if a > b { a } else { b }
     }
 
     #[test]
@@ -488,5 +568,123 @@ mod tests {
         // TODO: Add test for polygon tiling around a vertex once we have the RegularLoop implementation
     }
 
-    // TODO: Add test_edgeutil_intersection_error once we have the necessary helper functions
+    #[test]
+    fn test_edgeutil_intersection_error() {
+        // We repeatedly construct two edges that cross near a random point "p", and
+        // measure the distance from the actual intersection point "x" to the
+        // exact intersection point and also to the edges.
+        let distance_abs_error = Angle::from_radians(3.0 * DBL_EPSILON);
+        
+        let mut max_point_dist = Angle::from_radians(0.0);
+        let mut max_edge_dist = Angle::from_radians(0.0);
+        
+        // Reduce iterations for faster tests
+        let iterations = if cfg!(debug_assertions) { 100 } else { 5000 };
+        
+        for _ in 0..iterations {
+            // We construct two edges AB and CD that intersect near "p". The angle
+            // between AB and CD (expressed as a slope) is chosen randomly between
+            // 1e-15 and 1e15 such that its logarithm is uniformly distributed.
+            // Similarly, two edge lengths approximately between 1e-15 and 1 are
+            // chosen. The edge endpoints are chosen such that they are often very
+            // close to the other edge (i.e., barely crossing). Taken together this
+            // ensures that we test both long and very short edges that intersect at
+            // both large and very small angles.
+            //
+            // Sometimes the edges we generate will not actually cross, in which case
+            // we simply try again.
+            let f = random_frame();
+            let p = f[0];
+            let d1 = f[1];
+            let mut d2 = f[2];
+
+            let slope = 1e-15 * (1e30_f64).powf(random_float64());
+            d2 = Point(d1.0.add(d2.0.mul(slope)).normalize());
+            
+            // Find a pair of segments that cross.
+            let (a, b, c, d) = loop {
+                let ab_len = (1e-15_f64).powf(random_float64());
+                let cd_len = (1e-15_f64).powf(random_float64());
+                
+                let mut a_fraction = (1e-5_f64).powf(random_float64());
+                if one_in(2) {
+                    a_fraction = 1.0 - a_fraction;
+                }
+                
+                let mut c_fraction = (1e-5_f64).powf(random_float64());
+                if one_in(2) {
+                    c_fraction = 1.0 - c_fraction;
+                }
+                
+                let a = Point(p.0.sub(d1.0.mul(a_fraction * ab_len)).normalize());
+                let b = Point(p.0.add(d1.0.mul((1.0 - a_fraction) * ab_len)).normalize());
+                let c = Point(p.0.sub(d2.0.mul(c_fraction * cd_len)).normalize());
+                let d = Point(p.0.add(d2.0.mul((1.0 - c_fraction) * cd_len)).normalize());
+                
+                let mut crosser = EdgeCrosser::new(&a, &b);
+                if crosser.CrossingSign(c, d) == Crossing::Cross {
+                    break (a, b, c, d);
+                }
+            };
+
+            // Each constructed edge should be at most 1.5 * dblEpsilon away from the
+            // original point P.
+            let dist_ab = distance_from_segment(&p, &a, &b);
+            let want_dist = Angle::from_radians(1.5 * DBL_EPSILON) + distance_abs_error;
+            assert!(dist_ab <= want_dist, 
+                    "DistanceFromSegment({:?}, {:?}, {:?}) = {:?}, want <= {:?}", 
+                    p, a, b, dist_ab, want_dist);
+            
+            let dist_cd = distance_from_segment(&p, &c, &d);
+            assert!(dist_cd <= want_dist, 
+                    "DistanceFromSegment({:?}, {:?}, {:?}) = {:?}, want <= {:?}", 
+                    p, c, d, dist_cd, want_dist);
+
+            // Verify that the expected intersection point is close to both edges and
+            // also close to the original point P. (It might not be very close to P
+            // if the angle between the edges is very small.)
+            let expected = test_intersection_exact(&a, &b, &c, &d);
+            
+            let dist_expected_ab = distance_from_segment(&expected, &a, &b);
+            let want_dist_expected = Angle::from_radians(3.0 * DBL_EPSILON) + distance_abs_error;
+            assert!(dist_expected_ab <= want_dist_expected, 
+                    "DistanceFromSegment({:?}, {:?}, {:?}) = {:?}, want <= {:?}", 
+                    expected, a, b, dist_expected_ab, want_dist_expected);
+            
+            let dist_expected_cd = distance_from_segment(&expected, &c, &d);
+            assert!(dist_expected_cd <= want_dist_expected, 
+                    "DistanceFromSegment({:?}, {:?}, {:?}) = {:?}, want <= {:?}", 
+                    expected, c, d, dist_expected_cd, want_dist_expected);
+            
+            let dist_expected_p = expected.distance(&p);
+            let want_dist_p = Angle::from_radians(3.0 * DBL_EPSILON / slope) + 
+                              Angle::from_radians(INTERSECTION_ERROR);
+            assert!(dist_expected_p <= want_dist_p, 
+                    "{:?}.Distance({:?}) = {:?}, want <= {:?}", 
+                    expected, p, dist_expected_p, want_dist_p);
+
+            // Now we actually test the Intersection() method.
+            let actual = Intersection(&a, &b, &c, &d);
+            let dist_ab = distance_from_segment(&actual, &a, &b);
+            let dist_cd = distance_from_segment(&actual, &c, &d);
+            let point_dist = expected.distance(&actual);
+            
+            let want_dist_intersection = Angle::from_radians(INTERSECTION_ERROR) + distance_abs_error;
+            assert!(dist_ab <= want_dist_intersection, 
+                    "DistanceFromSegment({:?}, {:?}, {:?}) = {:?}, want <= {:?}", 
+                    actual, a, b, dist_ab, want_dist_intersection);
+            
+            assert!(dist_cd <= want_dist_intersection, 
+                    "DistanceFromSegment({:?}, {:?}, {:?}) = {:?}, want <= {:?}", 
+                    actual, c, d, dist_cd, want_dist_intersection);
+            
+            let want_point_dist = Angle::from_radians(INTERSECTION_ERROR);
+            assert!(point_dist <= want_point_dist, 
+                    "{:?}.Distance({:?}) = {:?}, want <= {:?}", 
+                    expected, actual, point_dist, want_point_dist);
+            
+            max_edge_dist = max_angle(max_edge_dist, max_angle(dist_ab, dist_cd));
+            max_point_dist = max_angle(max_point_dist, point_dist);
+        }
+    }
 }
