@@ -325,34 +325,34 @@ mod tests {
     #[test]
     pub fn test_precise_cross() {
         assert_eq!(
-            pv(1.0, 0.0, 0.0).cross(pv(1.0, 0.0, 0.0)),
+            pv(1.0, 0.0, 0.0).cross(&pv(1.0, 0.0, 0.0)),
             pv(0.0, 0.0, 0.0)
         );
         assert_eq!(
-            pv(1.0, 0.0, 0.0).cross(pv(0.0, 1.0, 0.0)),
+            pv(1.0, 0.0, 0.0).cross(&pv(0.0, 1.0, 0.0)),
             pv(0.0, 0.0, 1.0)
         );
         assert_eq!(
-            pv(0.0, 1.0, 0.0).cross(pv(0.0, 0.0, 1.0)),
+            pv(0.0, 1.0, 0.0).cross(&pv(0.0, 0.0, 1.0)),
             pv(1.0, 0.0, 0.0)
         );
         assert_eq!(
-            pv(0.0, 0.0, 1.0).cross(pv(1.0, 0.0, 0.0)),
+            pv(0.0, 0.0, 1.0).cross(&pv(1.0, 0.0, 0.0)),
             pv(0.0, 1.0, 0.0)
         );
         assert_eq!(
-            pv(0.0, 1.0, 0.0).cross(pv(1.0, 0.0, 0.0)),
+            pv(0.0, 1.0, 0.0).cross(&pv(1.0, 0.0, 0.0)),
             pv(0.0, 0.0, -1.0)
         );
         assert_eq!(
-            pv(1.0, 2.0, 3.0).cross(pv(-4.0, 5.0, -6.0)),
+            pv(1.0, 2.0, 3.0).cross(&pv(-4.0, 5.0, -6.0)),
             pv(-27.0, -6.0, 13.0)
         );
     }
 
     fn test_precise_identities_case(v1: PreciseVector, v2: PreciseVector) {
-        let c1 = v1.cross(v2.clone());
-        let c2 = v2.cross(v1.clone());
+        let c1 = v1.cross(&v2.clone());
+        let c2 = v2.cross(&v1.clone());
         let d1 = v1.dot(v2.clone());
         let d2 = v2.dot(v1.clone());
         assert_eq!(d1, d2);

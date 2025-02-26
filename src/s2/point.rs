@@ -189,6 +189,14 @@ impl Point {
 
         Matrix3::from_cols(c0.into(), c1.into(), c2.into())
     }
+    // TODO: Why is this wrapper needed?
+    // referenceDir returns a unit-length vector to use as the reference direction for
+    // deciding whether a polygon with semi-open boundaries contains the given vertex "a"
+    // (see ContainsVertexQuery). The result is unit length and is guaranteed
+    // to be different from the given point "a".
+    pub fn referenceDir(&self) -> Point {
+        self.ortho()
+    }
 }
 
 // from_frame returns the coordinates of the given point in standard axis-aligned basis

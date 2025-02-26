@@ -106,7 +106,29 @@ impl std::ops::Mul<f64> for Vector {
     }
 }
 
+impl<'a> std::ops::Mul<i64> for &'a Vector {
+    type Output = Vector;
+
+    fn mul(self, rhs: i64) -> Self::Output {
+        Vector {
+            x: self.x * rhs as f64,
+            y: self.y * rhs as f64,
+            z: self.z * rhs as f64,
+        }
+    }
+}
+
+impl std::ops::Mul<i64> for Vector {
+    type Output = Vector;
+    fn mul(self, m: i64) -> Self::Output {
+        &self * m
+    }
+}
+
+
+
 use std::cmp::*;
+
 
 impl Eq for Vector {}
 

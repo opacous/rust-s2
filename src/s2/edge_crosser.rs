@@ -84,7 +84,7 @@ impl EdgeCrosser {
     // ChainCrossingSign below.
     pub fn CrossingSign(&mut self, c: Point, d: Point) -> Crossing {
         if c != self.c {
-            self.RestartAt(&c)
+            self.RestartAt(c)
         }
         self.ChainCrossingSign(d)
     }
@@ -154,7 +154,7 @@ impl EdgeCrosser {
     pub fn EdgeOrVertexChainCrossing(&mut self, d: Point) -> bool {
         // We need to copy self.c since it is clobbered by ChainCrossingSign.
         let c = self.c;
-        match self.ChainCrossingSign(&d) {
+        match self.ChainCrossingSign(d) {
             Crossing::DoNotCross => false,
             Crossing::Cross => true,
             Crossing::Maybe => VertexCrossing(&self.a, &self.b, &c, &d),
@@ -182,7 +182,7 @@ impl EdgeCrosser {
         // dotProd below is dblEpsilon. (There is also a small relative error
         // term that is insignificant because we are comparing the result against a
         // constant that is very close to zero.)
-        let maxError = (1.5 + 1.0 / 3.0.sqrt()) * DBL_EPSILON;
+        let maxError = (1.5 + 1.0 / 3.0_f64.sqrt()) * DBL_EPSILON;
         
         // In Go, there's a defer statement that ensures these assignments happen
         // at the end of the function. In Rust, we'll compute the result first and

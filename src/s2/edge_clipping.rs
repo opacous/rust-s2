@@ -1,3 +1,4 @@
+use crate::consts::DBL_EPSILON;
 #[allow(dead_code)]
 /*
 Copyright 2014 Google Inc. All rights reserved.
@@ -24,12 +25,13 @@ limitations under the License.
 //
 // These functions can be used to efficiently find the set of CellIDs that
 // are intersected by a geodesic edge (e.g., see crossing_edge_query).
-use consts::*;
-use point::Point;
-use r1;
-use r2;
-use r3;
-use s2::stuv;
+use crate::consts::*;
+use crate::point::Point;
+use crate::r1;
+use crate::r2;
+use crate::r3;
+use crate::s2::stuv;
+use crate::s2::stuv::face_xyz_to_uvw;
 
 /// EDGE_CLIP_ERROR_UV_COORD is the maximum error in a u- or v-coordinate compared to the exact
 /// result, assuming that the points A and B are in the rectangle [-1,1]x[1,1] or slightly outside
@@ -647,7 +649,7 @@ pub fn face_segments(a: Point, b: Point) -> Vec<FaceSegment> {
         // Complete the current segment by finding the point where AB
         // exits the current face
 
-        let n: PointUVW = stuv::face_xyz_to_uvw(face, &ab);
+        let n: PointUVW = face_xyz_to_uvw(face, &ab);
         let exit_axis = n.exit_axis();
         segment.b = n.exit_point(exit_axis);
         segments.push(segment.clone());
@@ -694,7 +696,7 @@ fn move_origin_to_valid_face(
     }
 
     // Otherwise check whether the normal AB even intersects this face
-    let n: PointUVW = stuv::face_xyz_to_uvw(face, &ab);
+    let n: PointUVW = face_xyz_to_uvw(face, &ab);
     if n.intersects_face() {
         // Check whether the point where the line AB exits this face is on the
         // wrong side of A (by more than the acceptable error tolerance).
@@ -776,7 +778,6 @@ fn next_face(face: u8, exit: r2::point::Point, axis: Axis, n: PointUVW, target_f
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use point::Point;
     use r3;
 
     #[test]

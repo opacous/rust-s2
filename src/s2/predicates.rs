@@ -24,6 +24,7 @@ limitations under the License.
 //! See also EdgeCrosser, which implements various exact
 //! edge-crossing predicates more efficiently than can be done here.
 
+use std::ops::Neg;
 use crate::consts::*;
 use crate::s2::point::Point;
 
@@ -55,12 +56,24 @@ const MAX_DETERMINANT_ERROR: f64 = 1.8274 * DBL_EPSILON;
 /// its sign with certainty.
 const DET_ERROR_MULTIPLIER: f64 = 3.2321 * DBL_EPSILON;
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Direction {
     Clockwise,
     Indeterminate,
     CounterClockwise,
+}
+
+// TODO: Not sure if the correct interpretation
+impl Neg for Direction {
+    type Output = Direction;
+    fn neg(self) -> Direction {
+        match self {
+            Direction::Clockwise => Direction::CounterClockwise,
+            Direction::CounterClockwise => Direction::Clockwise,
+            Direction::Indeterminate => Direction::Indeterminate,
+        }
+    }
 }
 
 /// sign returns true if the points A, B, C are strictly counterclockwise,

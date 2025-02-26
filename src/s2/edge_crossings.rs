@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::predicates::*;
 use std::cmp::Ordering;
 use std::ops::{Add, Mul, Sub};
-use crate::predicates::*;
 
 use crate::consts::{DBL_EPSILON, EPSILON};
 use crate::point::{ordered_ccw, Point};
@@ -28,8 +28,7 @@ use crate::s2::edge_crosser::EdgeCrosser;
 // radians. However, using a larger error tolerance makes the algorithm more
 // efficient because it reduces the number of cases where exact arithmetic is
 // needed.
-static INTERSECTION_ERROR : f64 = 8.0 * DBL_EPSILON;
-
+static INTERSECTION_ERROR: f64 = 8.0 * DBL_EPSILON;
 
 // intersectionMergeRadius is used to ensure that intersection points that
 // are supposed to be coincident are merged back together into a single
@@ -37,15 +36,14 @@ static INTERSECTION_ERROR : f64 = 8.0 * DBL_EPSILON;
 // intersection, etc) to work correctly. It is twice the intersection error
 // because two coincident intersection points might have errors in
 // opposite directions.
-static INTERSECTION_MERGE_RADIUS : f64 = 16.0 * DBL_EPSILON;
-
+static INTERSECTION_MERGE_RADIUS: f64 = 16.0 * DBL_EPSILON;
 
 // A Crossing indicates how edges cross.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Crossing {
     Cross,
     Maybe,
-    DoNotCross
+    DoNotCross,
 }
 
 impl std::fmt::Display for Crossing {
@@ -113,7 +111,7 @@ pub fn VertexCrossing(a: &Point, b: &Point, c: &Point, d: &Point) -> bool {
     // If A == B or C == D there is no intersection. We need to check this
     // case first in case 3 or more input points are identical.
     if a == b || c == d {
-        return false
+        return false;
     }
 
     // If any other pair of vertices is equal, there is a crossing if and only
@@ -123,15 +121,13 @@ pub fn VertexCrossing(a: &Point, b: &Point, c: &Point, d: &Point) -> bool {
 
     // Optimization: if AB=CD or AB=DC, we can avoid most of the calculations.
     if a == c {
-        return (b == d) || ordered_ccw(a.referenceDir(), d, b, a)
-    }
-    else if b == d {
-        return ordered_ccw(b.referenceDir(), c, a, b)
+        return (b == d) || ordered_ccw(&a.referenceDir(), d, b, a);
+    } else if b == d {
+        return ordered_ccw(&b.referenceDir(), c, a, b);
     } else if a == d {
-        return (b == c) || ordered_ccw(a.referenceDir(), c, b, a)
-    }
-    else if b == c {
-        return ordered_ccw(b.referenceDir(), d, a, b)
+        return (b == c) || ordered_ccw(&a.referenceDir(), c, b, a);
+    } else if b == c {
+        return ordered_ccw(&b.referenceDir(), d, a, b);
     }
 
     false
@@ -146,7 +142,7 @@ pub fn EdgeOrVertexCrossing(a: &Point, b: &Point, c: &Point, d: &Point) -> bool 
     match Crossing::crossing_sign(a, b, c, d) {
         Crossing::DoNotCross => false,
         Crossing::Cross => true,
-        Crossing::Maybe => VertexCrossing(a, b, c, d)
+        Crossing::Maybe => VertexCrossing(a, b, c, d),
     }
 }
 
@@ -179,8 +175,8 @@ pub fn Intersection(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Point {
     //
     //  - intersectionExact computes the intersection point using precision
     //    arithmetic and converts the final result back to an Point.
-    let mut pt= intersectionStable(a0, a1, b0, b1)
-        .unwrap_or_else(|e|intersectionExact(a0, a1, b0, b1));
+    let mut pt =
+        intersectionStable(a0, a1, b0, b1).unwrap_or_else(|e| intersectionExact(a0, a1, b0, b1));
 
     // Make sure the intersection point is on the correct side of the sphere.
     // Since all vertices are unit length, and edges are less than 180 degrees,
@@ -204,7 +200,7 @@ fn robustNormalWithLength(x: &Vector, y: &Vector) -> (Vector, f64) {
     // stability when x and y are unit length.
     let tmp = x.sub(y).cross(&x.add(y));
     let length = tmp.norm();
-    if length != 0 {
+    if length != 0f64 {
         (tmp.mul(1.0 / length), 0.5 * length)
     } else {
         (Vector::default(), 0.5 * length)
@@ -225,8 +221,8 @@ fn projection(x: &Vector, aNorm: &Vector, aNormLen: f64, a0: &Point, a1: &Point)
     // vectors, so rather than using x itself (a unit-length vector) we use
     // the vectors from x to the closer of the two edge endpoints. This
     // typically reduces the error by a huge factor.
-    let x0 = x.sub(a0.0);
-    let x1 = x.sub(a1.0);
+    let x0 = x.sub(&a0.0);
+    let x1 = x.sub(&a1.0);
     let x0Dist2 = x0.norm2();
     let x1Dist2 = x1.norm2();
 
@@ -235,7 +231,6 @@ fn projection(x: &Vector, aNorm: &Vector, aNormLen: f64, a0: &Point, a1: &Point)
     // order of the endpoints is reversed.
     let mut dist = 0.0;
     let mut proj = 0.0;
-
 
     if x0Dist2 < x1Dist2 || (x0Dist2 == x1Dist2 && x0.cmp(&x1) == Ordering::Less) {
         dist = x0Dist2.sqrt();
@@ -254,10 +249,12 @@ fn projection(x: &Vector, aNorm: &Vector, aNormLen: f64, a0: &Point, a1: &Point)
     // ||N'-N|| <= ((1 + 2 * sqrt(3))||N|| + 32 * sqrt(3) * dblError) * epsilon
     // |(A.B)'-(A.B)| <= (1.5 * (A.B) + 1.5 * ||A|| * ||B||) * epsilon
     // ||(X-Y)'-(X-Y)|| <= ||X-Y|| * epsilon
-    let bound = (((3.5+2*3.0.sqrt())*aNormLen+32*3.0.sqrt()*DBL_EPSILON)*dist + 1.5*proj.abs())
+    let bound = (((3.5 + 2.0 * 3.0_f64.sqrt()) * aNormLen + 32. * 3.0_f64.sqrt() * DBL_EPSILON)
+        * dist
+        + 1.5 * proj.abs())
         * EPSILON;
 
-    return (proj, bound)
+    return (proj, bound);
 }
 
 // compareEdges reports whether (a0,a1) is less than (b0,b1) with respect to a total
@@ -266,13 +263,13 @@ fn compareEdges(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> bool {
     let (a0, a1) = match a0.0.cmp(&a1.0) {
         Ordering::Less => (a0, a1),
         Ordering::Equal => (a1, a0),
-        Ordering::Greater => (a1, a0)
+        Ordering::Greater => (a1, a0),
     };
 
     let (b0, b1) = match b0.0.cmp(&b1.0) {
         Ordering::Less => (b0, b1),
         Ordering::Equal => (b1, b0),
-        Ordering::Greater => (b1, b0)
+        Ordering::Greater => (b1, b0),
     };
 
     a0.0 < b0.0 || (a0 == b0 && b0.0 < b1.0)
@@ -296,7 +293,7 @@ fn intersectionStable(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Result<
     let aLen2 = a1.0.sub(a0.0).norm2();
     let bLen2 = b1.0.sub(b0.0).norm2();
     if aLen2 < bLen2 || (aLen2 == bLen2 && compareEdges(a0, a1, b0, b1)) {
-        return intersectionStableSorted(b0, b1, a0, a1)
+        return intersectionStableSorted(b0, b1, a0, a1);
     }
 
     intersectionStableSorted(a0, a1, b0, b1)
@@ -305,8 +302,12 @@ fn intersectionStable(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Result<
 // intersectionStableSorted is a helper fntion for intersectionStable.
 // It expects that the edges (a0,a1) and (b0,b1) have been sorted so that
 // the first edge passed in is longer.
-fn intersectionStableSorted(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Result<Point,
-    Point> {
+fn intersectionStableSorted(
+    a0: &Point,
+    a1: &Point,
+    b0: &Point,
+    b1: &Point,
+) -> Result<Point, Point> {
     let mut pt = Point::default();
 
     // Compute the normal of the plane through (a0, a1) in a stable way.
@@ -334,18 +335,18 @@ fn intersectionStableSorted(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> R
     let distSum = (b0Dist - b1Dist).abs();
     let errorSum = b0Error + b1Error;
     if distSum <= errorSum {
-        return Err(pt)  // Error is unbounded in this case.
+        return Err(pt); // Error is unbounded in this case.
     }
 
     let x = b1.mul(b0Dist).sub(b0.mul(b1Dist));
-    let err = bLen*(b0Dist*b1Error-b1Dist*b0Error).abs()
-        / (distSum-errorSum) + 2.0 * distSum*DBL_EPSILON;
+    let err = bLen * (b0Dist * b1Error - b1Dist * b0Error).abs() / (distSum - errorSum)
+        + 2.0 * distSum * DBL_EPSILON;
 
     // Finally we normalize the result, compute the corresponding error, and
     // check whether the total error is acceptable.
     let xLen = x.norm();
-    if err > (INTERSECTION_ERROR-EPSILON)*xLen {
-        return Err(pt)
+    if err > (INTERSECTION_ERROR - EPSILON) * xLen {
+        return Err(pt);
     }
 
     Ok(x.mul(1.0 / xLen))
@@ -359,10 +360,10 @@ fn intersectionStableSorted(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> R
 fn intersectionExact(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Point {
     // Since we are using presice arithmetic, we don't need to worry about
     // numerical stability.
-    let a0P : PreciseVector = a0.0.into();
-    let a1P : PreciseVector  = a1.0.into();
-    let b0P  : PreciseVector = b0.0.into();
-    let b1P  : PreciseVector = b1.0.into();
+    let a0P: PreciseVector = a0.0.into();
+    let a1P: PreciseVector = a1.0.into();
+    let b0P: PreciseVector = b0.0.into();
+    let b1P: PreciseVector = b1.0.into();
     let aNormP = a0P.cross(&a1P);
     let bNormP = b0P.cross(&b1P);
     let xP = aNormP.cross(&bNormP);
@@ -382,17 +383,17 @@ fn intersectionExact(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Point {
         let aNorm = Point(aNormP.into());
         let bNorm = Point(bNormP.into());
 
-        if ordered_ccw(b0, a0, b1, &bNorm) && a0<x{
-            return *a0
+        if ordered_ccw(b0, a0, b1, &bNorm) && a0.0 < x {
+            return *a0;
         }
-        if ordered_ccw(b0, a1, b1, &bNorm) && a1<x{
-            return *a1
+        if ordered_ccw(b0, a1, b1, &bNorm) && a1.0 < x {
+            return *a1;
         }
-        if ordered_ccw(a0, b0, a1, &aNorm) && b0<x{
-            return *b0
+        if ordered_ccw(a0, b0, a1, &aNorm) && b0.0 < x {
+            return *b0;
         }
-        if ordered_ccw(a0, b1, a1, &aNorm) && b1<x {
-            return *b1
+        if ordered_ccw(a0, b1, a1, &aNorm) && b1.0 < x {
+            return *b1;
         }
     }
 
@@ -431,7 +432,7 @@ pub fn AngleContainsVertex(a: &Point, b: &Point, c: &Point) -> bool {
     // Note that the test below is written so as to get correct results when the
     // angle ABC is degenerate. If A = C or C = R it returns false, and
     // otherwise if A = R it returns true.
-    return !ordered_ccw(&b.referenceDir(), c, a, b)
+    return !ordered_ccw(&b.referenceDir(), c, a, b);
 }
 
 // TODO(roberts): Differences from C++
