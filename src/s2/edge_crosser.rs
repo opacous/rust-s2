@@ -445,4 +445,240 @@ t.Errorf("%v, EdgeOrVertexCrossing(c, d) = %t, want %t", input, got, want)
 
 mod tests {
     use super::*;
+    use crate::r3::vector::Vector;
+    use std::f64::EPSILON as DBL_EPSILON;
+
+    // Helper function to create a Point from coordinates
+    fn point(x: f64, y: f64, z: f64) -> Point {
+        Point(Vector::new(x, y, z).normalize())
+    }
+
+    // Helper function to test crossing with different combinations
+    fn test_crossing(
+        msg: &str,
+        a: Point,
+        b: Point,
+        c: Point,
+        d: Point,
+        robust: Crossing,
+        edge_or_vertex: bool,
+    ) {
+        // Modify the expected result if two vertices from different edges match.
+        let robust = if a == c || a == d || b == c || b == d {
+            Crossing::Maybe
+        } else {
+            robust
+        };
+
+        let input = format!("{}: a: {:?}, b: {:?}, c: {:?}, d: {:?}", msg, a, b, c, d);
+
+        let mut crosser = EdgeCrosser::NewChainEdgeCrosser(&a, &b, &c);
+        assert_eq!(
+            crosser.ChainCrossingSign(d),
+            robust,
+            "{}, ChainCrossingSign(d)",
+            input
+        );
+        assert_eq!(
+            crosser.ChainCrossingSign(c),
+            robust,
+            "{}, ChainCrossingSign(c)",
+            input
+        );
+        assert_eq!(
+            crosser.CrossingSign(d, c),
+            robust,
+            "{}, CrossingSign(d, c)",
+            input
+        );
+        assert_eq!(
+            crosser.CrossingSign(c, d),
+            robust,
+            "{}, CrossingSign(c, d)",
+            input
+        );
+
+        crosser.RestartAt(c);
+        assert_eq!(
+            crosser.EdgeOrVertexChainCrossing(d),
+            edge_or_vertex,
+            "{}, EdgeOrVertexChainCrossing(d)",
+            input
+        );
+        assert_eq!(
+            crosser.EdgeOrVertexChainCrossing(c),
+            edge_or_vertex,
+            "{}, EdgeOrVertexChainCrossing(c)",
+            input
+        );
+        assert_eq!(
+            crosser.EdgeOrVertexCrossing(d, c),
+            edge_or_vertex,
+            "{}, EdgeOrVertexCrossing(d, c)",
+            input
+        );
+        assert_eq!(
+            crosser.EdgeOrVertexCrossing(c, d),
+            edge_or_vertex,
+            "{}, EdgeOrVertexCrossing(c, d)",
+            input
+        );
+    }
+
+    #[test]
+    fn test_edge_crosser_crossings() {
+        // Equivalent to math.Nextafter(1, 0) in Go
+        let na1 = f64::from_bits(0x3fefffffffffffff); // Slightly less than 1.0
+        let na2 = f64::from_bits(0x3ff0000000000001); // Slightly more than 1.0
+
+        let tests = vec![
+            (
+                "two regular edges that cross",
+                point(1.0, 2.0, 1.0),
+                point(1.0, -3.0, 0.5),
+                point(1.0, -0.5, -3.0),
+                point(0.1, 0.5, 3.0),
+                Crossing::Cross,
+                true,
+            ),
+            (
+                "two regular edges that intersect antipodal points",
+                point(1.0, 2.0, 1.0),
+                point(1.0, -3.0, 0.5),
+                point(-1.0, 0.5, 3.0),
+                point(-0.1, -0.5, -3.0),
+                Crossing::DoNotCross,
+                false,
+            ),
+            (
+                "two edges on the same great circle that start at antipodal points",
+                point(0.0, 0.0, -1.0),
+                point(0.0, 1.0, 0.0),
+                point(0.0, 0.0, 1.0),
+                point(0.0, 1.0, 1.0),
+                Crossing::DoNotCross,
+                false,
+            ),
+            (
+                "two edges that cross where one vertex is the OriginPoint",
+                point(1.0, 0.0, 0.0),
+                Point(Vector::new(0.0, 0.0, 0.0)), // OriginPoint
+                point(1.0, -0.1, 1.0),
+                point(1.0, 1.0, -0.1),
+                Crossing::Cross,
+                true,
+            ),
+            (
+                "two edges that intersect antipodal points where one vertex is the OriginPoint",
+                point(1.0, 0.0, 0.0),
+                Point(Vector::new(0.0, 0.0, 0.0)), // OriginPoint
+                point(1.0, 0.1, -1.0),
+                point(1.0, 1.0, -0.1),
+                Crossing::DoNotCross,
+                false,
+            ),
+            (
+                "two edges that cross antipodal points",
+                point(1.0, 0.0, 0.0),
+                point(0.0, 1.0, 0.0),
+                point(0.0, 0.0, -1.0),
+                point(-1.0, -1.0, 1.0),
+                Crossing::DoNotCross,
+                false,
+            ),
+            (
+                "two edges that share an endpoint",
+                point(2.0, 3.0, 4.0),
+                point(-1.0, 2.0, 5.0),
+                point(7.0, -2.0, 3.0),
+                point(2.0, 3.0, 4.0),
+                Crossing::Maybe,
+                false,
+            ),
+            (
+                "two edges that barely cross near the middle of one edge",
+                point(1.0, 1.0, 1.0),
+                point(1.0, na1, -1.0),
+                point(11.0, -12.0, -1.0),
+                point(10.0, 10.0, 1.0),
+                Crossing::Cross,
+                true,
+            ),
+            (
+                "two edges that barely cross near the middle separated by a distance of about 1e-15",
+                point(1.0, 1.0, 1.0),
+                point(1.0, na2, -1.0),
+                point(1.0, -1.0, 0.0),
+                point(1.0, 1.0, 0.0),
+                Crossing::DoNotCross,
+                false,
+            ),
+            (
+                "two edges that barely cross each other near the end of both edges",
+                point(0.0, 0.0, 1.0),
+                point(2.0, -1e-323, 1.0),
+                point(1.0, -1.0, 1.0),
+                point(1e-323, 0.0, 1.0),
+                Crossing::Cross,
+                true,
+            ),
+            (
+                "two edges that barely cross each other near the end separated by a distance of about 1e-640",
+                point(0.0, 0.0, 1.0),
+                point(2.0, 1e-323, 1.0),
+                point(1.0, -1.0, 1.0),
+                point(1e-323, 0.0, 1.0),
+                Crossing::DoNotCross,
+                false,
+            ),
+            (
+                "two edges that barely cross each other near the middle of one edge",
+                point(1.0, -1e-323, -1e-323),
+                point(1e-323, 1.0, 1e-323),
+                point(1.0, -1.0, 1e-323),
+                point(1.0, 1.0, 0.0),
+                Crossing::Cross,
+                true,
+            ),
+            (
+                "two edges that barely cross each other near the middle separated by a distance of about 1e-640",
+                point(1.0, 1e-323, -1e-323),
+                point(-1e-323, 1.0, 1e-323),
+                point(1.0, -1.0, 1e-323),
+                point(1.0, 1.0, 0.0),
+                Crossing::DoNotCross,
+                false,
+            ),
+        ];
+
+        for (msg, a, b, c, d, robust, edge_or_vertex) in tests {
+            // Normalize the points
+            let a = Point(a.0.normalize());
+            let b = Point(b.0.normalize());
+            let c = Point(c.0.normalize());
+            let d = Point(d.0.normalize());
+
+            // Test all combinations
+            test_crossing(msg, a, b, c, d, robust, edge_or_vertex);
+            test_crossing(msg, b, a, c, d, robust, edge_or_vertex);
+            test_crossing(msg, a, b, d, c, robust, edge_or_vertex);
+            test_crossing(msg, b, a, d, c, robust, edge_or_vertex);
+
+            // Test degenerate cases
+            test_crossing(msg, a, a, c, d, Crossing::DoNotCross, false);
+            test_crossing(msg, a, b, c, c, Crossing::DoNotCross, false);
+            test_crossing(msg, a, a, c, c, Crossing::DoNotCross, false);
+
+            test_crossing(msg, a, b, a, b, Crossing::Maybe, true);
+            test_crossing(
+                msg,
+                c,
+                d,
+                a,
+                b,
+                robust,
+                edge_or_vertex != (robust == Crossing::Maybe),
+            );
+        }
+    }
 }
