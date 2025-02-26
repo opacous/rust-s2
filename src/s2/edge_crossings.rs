@@ -492,7 +492,7 @@ mod tests {
         let ax_dot_ab = ax.dot(&ab);
 
         // Handle cases (2) and (3).
-        if ax_dot_ab <= 0 {
+        if ax_dot_ab <= 0.0 {
             return x.distance(a); // Closest to endpoint A.
         }
         if ax_dot_ab >= ab_norm2 {
@@ -501,7 +501,7 @@ mod tests {
 
         // The closest point is the projection of X onto AB.
         let p = a.0.add(ab.mul(ax_dot_ab / ab_norm2));
-        return x.distance(&Point(p.normalize()));
+        x.distance(&Point(p.normalize()))
     }
 
     // Returns a random orthonormal frame (three orthogonal unit-length vectors).
@@ -573,10 +573,10 @@ mod tests {
         // We repeatedly construct two edges that cross near a random point "p", and
         // measure the distance from the actual intersection point "x" to the
         // exact intersection point and also to the edges.
-        let distance_abs_error = Angle::from_radians(3.0 * DBL_EPSILON);
+        let distance_abs_error = Angle(3.0 * DBL_EPSILON);
         
-        let mut max_point_dist = Angle::from_radians(0.0);
-        let mut max_edge_dist = Angle::from_radians(0.0);
+        let mut max_point_dist = Angle(0.0);
+        let mut max_edge_dist = Angle(0.0);
         
         // Reduce iterations for faster tests
         let iterations = if cfg!(debug_assertions) { 100 } else { 5000 };
@@ -630,15 +630,16 @@ mod tests {
             // Each constructed edge should be at most 1.5 * dblEpsilon away from the
             // original point P.
             let dist_ab = distance_from_segment(&p, &a, &b);
-            let want_dist = Angle::from_radians(1.5 * DBL_EPSILON) + distance_abs_error;
+            // panic!("dist_ab = {}", dist_ab.0);
+            let want_dist = Angle(1.5 * DBL_EPSILON) + distance_abs_error;
             assert!(dist_ab <= want_dist, 
-                    "DistanceFromSegment({:?}, {:?}, {:?}) = {:?}, want <= {:?}", 
-                    p, a, b, dist_ab, want_dist);
+                    "DistanceFromSegment({:?}, {:?}, {:?}) = {:.32}, want <= {:.32}",
+                    p, a, b, dist_ab.0, want_dist.0);
             
             let dist_cd = distance_from_segment(&p, &c, &d);
             assert!(dist_cd <= want_dist, 
-                    "DistanceFromSegment({:?}, {:?}, {:?}) = {:?}, want <= {:?}", 
-                    p, c, d, dist_cd, want_dist);
+                    "DistanceFromSegment({:?}, {:?}, {:?}) = {:.32}, want <= {:.32}",
+                    p, c, d, dist_cd.0, want_dist.0);
 
             // Verify that the expected intersection point is close to both edges and
             // also close to the original point P. (It might not be very close to P
@@ -646,7 +647,7 @@ mod tests {
             let expected = test_intersection_exact(&a, &b, &c, &d);
             
             let dist_expected_ab = distance_from_segment(&expected, &a, &b);
-            let want_dist_expected = Angle::from_radians(3.0 * DBL_EPSILON) + distance_abs_error;
+            let want_dist_expected = Angle(3.0 * DBL_EPSILON) + distance_abs_error;
             assert!(dist_expected_ab <= want_dist_expected, 
                     "DistanceFromSegment({:?}, {:?}, {:?}) = {:?}, want <= {:?}", 
                     expected, a, b, dist_expected_ab, want_dist_expected);
@@ -657,8 +658,8 @@ mod tests {
                     expected, c, d, dist_expected_cd, want_dist_expected);
             
             let dist_expected_p = expected.distance(&p);
-            let want_dist_p = Angle::from_radians(3.0 * DBL_EPSILON / slope) + 
-                              Angle::from_radians(INTERSECTION_ERROR);
+            let want_dist_p = Angle(3.0 * DBL_EPSILON / slope) +
+                              Angle(INTERSECTION_ERROR);
             assert!(dist_expected_p <= want_dist_p, 
                     "{:?}.Distance({:?}) = {:?}, want <= {:?}", 
                     expected, p, dist_expected_p, want_dist_p);
@@ -669,7 +670,7 @@ mod tests {
             let dist_cd = distance_from_segment(&actual, &c, &d);
             let point_dist = expected.distance(&actual);
             
-            let want_dist_intersection = Angle::from_radians(INTERSECTION_ERROR) + distance_abs_error;
+            let want_dist_intersection = Angle(INTERSECTION_ERROR) + distance_abs_error;
             assert!(dist_ab <= want_dist_intersection, 
                     "DistanceFromSegment({:?}, {:?}, {:?}) = {:?}, want <= {:?}", 
                     actual, a, b, dist_ab, want_dist_intersection);
@@ -678,7 +679,7 @@ mod tests {
                     "DistanceFromSegment({:?}, {:?}, {:?}) = {:?}, want <= {:?}", 
                     actual, c, d, dist_cd, want_dist_intersection);
             
-            let want_point_dist = Angle::from_radians(INTERSECTION_ERROR);
+            let want_point_dist = Angle(INTERSECTION_ERROR);
             assert!(point_dist <= want_point_dist, 
                     "{:?}.Distance({:?}) = {:?}, want <= {:?}", 
                     expected, actual, point_dist, want_point_dist);
