@@ -486,18 +486,9 @@ mod tests {
             return x.distance(a);
         }
 
-        // For numerical stability, we'll use a different approach for nearly parallel vectors
-        // Calculate the cross product of AB and AX
         let ab = b.0.sub(a.0);
         let ax = x.0.sub(a.0);
-        let cross = ax.cross(&ab);
-        let cross_norm = cross.norm();
-        
-        // Calculate the squared norms for efficiency
         let ab_norm2 = ab.norm2();
-        let ax_norm2 = ax.norm2();
-        
-        // Calculate the dot product
         let ax_dot_ab = ax.dot(&ab);
 
         // Handle cases (2) and (3).
@@ -508,20 +499,8 @@ mod tests {
             return x.distance(b); // Closest to endpoint B.
         }
 
-        // For very small angles between vectors, use the sine of the angle directly
-        // sin(angle) = |cross|/(|ab|*|ax|)
-        if cross_norm < 1e-10 {
-            // For extremely small angles, we need to be careful about numerical stability
-            let ab_norm = ab_norm2.sqrt();
-            let ax_norm = ax_norm2.sqrt();
-            let sin_angle = cross_norm / (ab_norm * ax_norm);
-            return Angle(sin_angle.asin());
-        }
-
         // The closest point is the projection of X onto AB.
-        // Use a more stable calculation for the projection point
-        let t = ax_dot_ab / ab_norm2;
-        let p = a.0.add(ab.mul(t));
+        let p = a.0.add(ab.mul(ax_dot_ab / ab_norm2));
         x.distance(&Point(p.normalize()))
     }
 
@@ -651,9 +630,8 @@ mod tests {
             // Each constructed edge should be at most 1.5 * dblEpsilon away from the
             // original point P.
             let dist_ab = distance_from_segment(&p, &a, &b);
-            
-            // Increase the tolerance slightly for extreme cases
-            let want_dist = Angle(2.0 * DBL_EPSILON) + distance_abs_error;
+            // panic!("dist_ab = {}", dist_ab.0);
+            let want_dist = Angle(1.5 * DBL_EPSILON) + distance_abs_error;
             assert!(dist_ab <= want_dist, 
                     "DistanceFromSegment({:?}, {:?}, {:?}) = {:.32}, want <= {:.32}",
                     p, a, b, dist_ab.0, want_dist.0);
