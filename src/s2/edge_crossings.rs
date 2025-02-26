@@ -326,9 +326,9 @@ fn intersectionStableSorted(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> R
         return Err(pt)  // Error is unbounded in this case.
     }
 
-    let x = b1.mul(b0Dist).sub(b0.mul(b1Dist))
+    let x = b1.mul(b0Dist).sub(b0.mul(b1Dist));
     let err = bLen*(b0Dist*b1Error-b1Dist*b0Error).abs()
-        / (distSum-errorSum) + 2*distSum*DBL_EPSILON;
+        / (distSum-errorSum) + 2.0 * distSum*DBL_EPSILON;
 
     // Finally we normalize the result, compute the corresponding error, and
     // check whether the total error is acceptable.
