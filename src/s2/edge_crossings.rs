@@ -511,10 +511,29 @@ mod tests {
         }
 
         // The closest point is the projection of X onto AB.
+        // For numerical stability, we need to be careful with the normalization step
+        // when dealing with points that are extremely close to each other.
         let p = a.0.add(ab.mul(ax_dot_ab / ab_norm2));
-        let normalized_p = p.normalize();
+        
+        // Check if p is already very close to a unit vector
+        let p_norm = p.norm();
+        let normalized_p = if (p_norm - 1.0).abs() < DBL_EPSILON {
+            // If p is already very close to a unit vector, avoid normalization
+            p
+        } else {
+            p.normalize()
+        };
+        
         println!("Projection point before normalization: {:?}", p);
         println!("Projection point after normalization: {:?}", normalized_p);
+        
+        // For very small distances, we need to be careful with floating point precision
+        // First check if the points are extremely close
+        let direct_dist = x.0.sub(&normalized_p).norm();
+        if direct_dist < DBL_EPSILON {
+            println!("Points are extremely close, returning minimal distance");
+            return Angle(0.0);
+        }
         
         let dist = x.distance(&Point(normalized_p));
         println!("Distance to projection: {}", dist.0);
