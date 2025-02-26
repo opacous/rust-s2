@@ -189,7 +189,7 @@ pub fn triage_sign(a: &Point, b: &Point, c: &Point) -> Direction {
 /// expensive_sign reports the direction sign of the points. It returns Indeterminate
 /// if two of the input points are the same. It uses multiple-precision arithmetic
 /// to ensure that its results are always self-consistent.
-fn expensive_sign(a: &Point, b: &Point, c: &Point) -> Direction {
+pub fn expensive_sign(a: &Point, b: &Point, c: &Point) -> Direction {
     // Return Indeterminate if and only if two points are the same.
     // This ensures RobustSign(a,b,c) == Indeterminate if and only if a == b, b == c, or c == a.
     // ie. Property 1 of RobustSign.
@@ -213,7 +213,7 @@ fn expensive_sign(a: &Point, b: &Point, c: &Point) -> Direction {
 }
 
 /// exact-sign reports the direction sign of the points using exact precision arithmetic.
-fn exact_sign(_: &Point, _: &Point, _: &Point, _: bool) -> Direction {
+pub fn exact_sign(_: &Point, _: &Point, _: &Point, _: bool) -> Direction {
     // In the C++ version, the final computation is performed using OpenSSL's
     // Bignum exact precision math library. The existence of an equivalent
     // library in Go is indeterminate. In C++, using the exact precision library

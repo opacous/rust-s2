@@ -9,7 +9,7 @@ use crate::s1::*;
 use crate::s2::edgeutil;
 use crate::s2::latlng::LatLng;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Rect {
     pub lat: r1::interval::Interval,

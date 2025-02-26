@@ -39,9 +39,9 @@ pub fn prec_float(f: f64) -> bigdecimal::BigDecimal {
 #[derive(Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PreciseVector {
-    x: bigdecimal::BigDecimal,
-    y: bigdecimal::BigDecimal,
-    z: bigdecimal::BigDecimal,
+    pub x: bigdecimal::BigDecimal,
+    pub y: bigdecimal::BigDecimal,
+    pub z: bigdecimal::BigDecimal,
 }
 
 impl From<r3::vector::Vector> for PreciseVector {
@@ -143,7 +143,7 @@ impl PreciseVector {
     }
 
     /// cross returns the standard cross product of v and ov.
-    pub fn cross(&self, ov: PreciseVector) -> PreciseVector {
+    pub fn cross(&self, ov: &PreciseVector) -> PreciseVector {
         return PreciseVector {
             x: (&self.y * &ov.z) - (&self.z * &ov.y),
             y: (&self.z * &ov.x) - (&self.x * &ov.z),

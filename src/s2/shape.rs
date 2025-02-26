@@ -18,8 +18,8 @@ use std::cmp::*;
 // allowed, and can be used to represent points.
 
 pub struct Edge {
-    v0: Point,
-    v1: Point,
+    pub v0: Point,
+    pub v1: Point,
 }
 
 impl Eq for Edge {}
