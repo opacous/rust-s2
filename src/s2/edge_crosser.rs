@@ -131,18 +131,18 @@ impl EdgeCrosser {
     pub fn ChainCrossingSign(&mut self, d: Point) -> Crossing {
         // For there to be an edge crossing, the triangles ACB, CBD, BDA, DAC must
         // all be oriented the same way (CW or CCW). We keep the orientation of ACB
-        // as part of our statself. When each new point D arrives, we compute the
+        // as part of our state. When each new point D arrives, we compute the
         // orientation of BDA and check whether it matches ACB. This checks whether
         // the points C and D are on opposite sides of the great circle through AB.
 
         // Recall that triageSign is invariant with respect to rotating its
-        // arguments, i.self. ABD has the same orientation as BDA.
+        // arguments, i.e. ABD has the same orientation as BDA.
         let bda = triage_sign(&self.a, &self.b, &d);
-        if self.acb == -&bda && bda != Direction::Indeterminate {
+        if self.acb == -bda && bda != Direction::Indeterminate {
             // The most common case -- triangles have opposite orientations. Save the
             // current vertex D as the next vertex C, and also save the orientation of
             // the new triangle ACB (which is opposite to the current triangle BDA).
-            self.c = *d;
+            self.c = d;
             self.acb = -bda;
             return Crossing::DoNotCross;
         }
