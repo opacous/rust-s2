@@ -12,170 +12,179 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::cmp::Ordering;
+use std::f64::consts::PI;
+
 use crate::cell::Cell;
 use crate::point::Point;
+use crate::r1;
 use crate::r3::vector::Vector;
 use crate::rect::Rect;
+use crate::s1;
 use crate::s2::edge_crossings::angle_contains_vertex;
-use crate::predicates::*;
+use crate::s2::edge_crossings::{EdgeCrosser, ChainEdgeCrosser};
+use crate::s2::predicates::*;
+use crate::s2::error::{S2Error, S2Result};
+use crate::consts::EPSILON;
 
-// Loop represents a simple spherical polygon. It consists of a sequence
-// of vertices where the first vertex is implicitly connected to the
-// last. All loops are defined to have a CCW orientation, i.e. the interior of
-// the loop is on the left side of the edges. This implies that a clockwise
-// loop enclosing a small area is interpreted to be a CCW loop enclosing a
-// very large area.
-//
-// Loops are not allowed to have any duplicate vertices (whether adjacent or
-// not).  Non-adjacent edges are not allowed to intersect, and furthermore edges
-// of length 180 degrees are not allowed (i.e., adjacent vertices cannot be
-// antipodal). Loops must have at least 3 vertices (except for the "empty" and
-// "full" loops discussed below).
-//
-// There are two special loops: the "empty" loop contains no points and the
-// "full" loop contains all points. These loops do not have any edges, but to
-// preserve the invariant that every loop can be represented as a vertex
-// chain, they are defined as having exactly one vertex each (see EmptyLoop
-// and FullLoop).
+/// Loop represents a simple spherical polygon. It consists of a sequence
+/// of vertices where the first vertex is implicitly connected to the
+/// last. All loops are defined to have a CCW orientation, i.e. the interior of
+/// the loop is on the left side of the edges. This implies that a clockwise
+/// loop enclosing a small area is interpreted to be a CCW loop enclosing a
+/// very large area.
+///
+/// Loops are not allowed to have any duplicate vertices (whether adjacent or
+/// not). Non-adjacent edges are not allowed to intersect, and furthermore edges
+/// of length 180 degrees are not allowed (i.e., adjacent vertices cannot be
+/// antipodal). Loops must have at least 3 vertices (except for the "empty" and
+/// "full" loops discussed below).
+///
+/// There are two special loops: the "empty" loop contains no points and the
+/// "full" loop contains all points. These loops do not have any edges, but to
+/// preserve the invariant that every loop can be represented as a vertex
+/// chain, they are defined as having exactly one vertex each (see empty_loop
+/// and full_loop).
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Loop {
+    /// The vertices of the loop
     vertices: Vec<Point>,
 
-    // origin_inside keeps a precomputed value whether this loop contains the origin
-    // versus computing from the set of vertices every time.
+    /// origin_inside keeps a precomputed value whether this loop contains the origin
+    /// versus computing from the set of vertices every time.
     origin_inside: bool,
 
-    // depth is the nesting depth of this Loop if it is contained by a Polygon
-    // or other shape and is used to determine if this loop represents a hole
-    // or a filled in portion.
+    /// depth is the nesting depth of this Loop if it is contained by a Polygon
+    /// or other shape and is used to determine if this loop represents a hole
+    /// or a filled in portion.
     depth: i64,
 
-    // bound is a conservative bound on all points contained by this loop.
-    // If self.ContainsPoint(P), then self.bound.ContainsPoint(P).
+    /// bound is a conservative bound on all points contained by this loop.
+    /// If self.contains_point(P), then self.bound.contains_point(P).
     bound: Rect,
 
-    // Since bound is not exact, it is possible that a loop A contains
-    // another loop B whose bounds are slightly larger. subregion_bound
-    // has been expanded sufficiently to account for this error, i.e.
-    // if A.Contains(B), then A.subregion_bound.Contains(B.bound).
+    /// Since bound is not exact, it is possible that a loop A contains
+    /// another loop B whose bounds are slightly larger. subregion_bound
+    /// has been expanded sufficiently to account for this error, i.e.
+    /// if A.contains(B), then A.subregion_bound.contains(B.bound).
     subregion_bound: Rect,
 
-    // index is the spatial index for this Loop.
-    //index *ShapeIndex
+    /// index is the spatial index for this Loop.
+    index: Option<ShapeIndex>,
 }
 
 // These two points are used for the special Empty and Full loops.
-
-const emptyLoopPoint:Point = Point(Vector{x: 0.0, y: 0.0, z: 1.0});
-const fullLoopPoint:Point  = Point(Vector{x: 0., y: 0., z: - 1.});
+lazy_static::lazy_static! {
+    static ref EMPTY_LOOP_POINT: Point = Point(Vector { x: 0.0, y: 0.0, z: 1.0 });
+    static ref FULL_LOOP_POINT: Point = Point(Vector { x: 0.0, y: 0.0, z: -1.0 });
+}
 
 impl Loop {
-    // initOriginAndBound sets the origin containment for the given point and then calls
-    // the initialization for the bounds objects and the internal index.
-    fn initOriginAndBound(&mut self) {
+    /// init_origin_and_bound sets the origin containment for the given point and then calls
+    /// the initialization for the bounds objects and the internal index.
+    fn init_origin_and_bound(&mut self) {
         if self.vertices.len() < 3 {
             // Check for the special "empty" and "full" loops (which have one vertex).
-            if !self.isEmptyOrFull() {
+            if !self.is_empty_or_full() {
                 self.origin_inside = false;
-                return
+                return;
             }
             // This is the special empty or full loop, so the origin depends on if
             // the vertex is in the southern hemisphere or not.
             self.origin_inside = self.vertices[0].0.z < 0.0;
         } else {
             // The brute force point containment algorithm works by counting edge
-            // crossings starting at a fixed reference point (chosen as OriginPoint()
-            // for historical reasons).  Loop initialization would be more efficient
+            // crossings starting at a fixed reference point (chosen as origin_point()
+            // for historical reasons). Loop initialization would be more efficient
             // if we used a loop vertex such as vertex(0) as the reference point
             // instead, however making this change would be a lot of work because
             // origin_inside is currently part of the Encode() format.
             //
             // In any case, we initialize origin_inside by first guessing that it is
             // outside, and then seeing whether we get the correct containment result
-            // for vertex 1.  If the result is incorrect, the origin must be inside
-            // the loop instead.  Note that the Loop is not necessarily valid and so
-            // we need to check the requirements of AngleContainsVertex first.
-            let v1Inside = self.vertices[0] != self.vertices[1] &&
+            // for vertex 1. If the result is incorrect, the origin must be inside
+            // the loop instead. Note that the Loop is not necessarily valid and so
+            // we need to check the requirements of angle_contains_vertex first.
+            let v1_inside = self.vertices[0] != self.vertices[1] &&
                 self.vertices[2] != self.vertices[1] &&
                 angle_contains_vertex(&self.vertices[0], &self.vertices[1], &self.vertices[2]);
 
-            // initialize before calling ContainsPoint
+            // initialize before calling contains_point
             self.origin_inside = false;
 
-            // Note that ContainsPoint only does a bounds check once initIndex
+            // Note that contains_point only does a bounds check once init_index
             // has been called, so it doesn't matter that bound is undefined here.
-            if v1Inside != self.ContainsPoint(self.vertices[1]) {
+            if v1_inside != self.contains_point(self.vertices[1]) {
                 self.origin_inside = true;
             }
-
         }
 
-        // We *must* call initBound before initializing the index, because
-        // initBound calls ContainsPoint which does a bounds check before using
+        // We *must* call init_bound before initializing the index, because
+        // init_bound calls contains_point which does a bounds check before using
         // the index.
-        self.initBound();
+        self.init_bound();
 
         // Create a new index and add us to it.
-        // self.index = NewShapeIndex();
-        // self.index.add(l);
+        self.index = Some(ShapeIndex::new());
+        // TODO: Add self to the index
+        // if let Some(index) = &mut self.index {
+        //     index.add(self);
+        // }
     }
 
-
-    // LoopFromPoints constructs a loop from the given points.
-    fn from_points(pts: &[Point]) -> Self {
+    /// from_points constructs a loop from the given points.
+    pub fn from_points(pts: &[Point]) -> Self {
         let mut l = Loop::default();
         l.vertices = pts.to_vec();
 
-        l.initOriginAndBound();
+        l.init_origin_and_bound();
         l
     }
 
-// LoopFromCell constructs a loop corresponding to the given cell.
-//
-// Note that the loop and cell *do not* contain exactly the same set of
-// points, because Loop and Cell have slightly different definitions of
-// point containment. For example, a Cell vertex is contained by all
-// four neighboring Cells, but it is contained by exactly one of four
-// Loops constructed from those cells. As another example, the cell
-// coverings of cell and LoopFromCell(cell) will be different, because the
-// loop contains points on its boundary that actually belong to other cells
-// (i.e., the covering will include a layer of neighboring cells).
-    fn LoopFromCell(c: Cell) -> Loop {
-        Loop::from_points(&c.vertices())
+    /// from_cell constructs a loop corresponding to the given cell.
+    ///
+    /// Note that the loop and cell *do not* contain exactly the same set of
+    /// points, because Loop and Cell have slightly different definitions of
+    /// point containment. For example, a Cell vertex is contained by all
+    /// four neighboring Cells, but it is contained by exactly one of four
+    /// Loops constructed from those cells. As another example, the cell
+    /// coverings of cell and from_cell(cell) will be different, because the
+    /// loop contains points on its boundary that actually belong to other cells
+    /// (i.e., the covering will include a layer of neighboring cells).
+    pub fn from_cell(c: &Cell) -> Self {
+        Self::from_points(&c.vertices())
+    }
+
+    /// empty_loop returns a special "empty" loop.
+    pub fn empty_loop() -> Self {
+        Self::from_points(&[EMPTY_LOOP_POINT.clone()])
+    }
+
+    /// full_loop returns a special "full" loop.
+    pub fn full_loop() -> Self {
+        Self::from_points(&[FULL_LOOP_POINT.clone()])
     }
 
 
 
-    // EmptyLoop returns a special "empty" loop.
-    fn EmptyLoop()  ->  Loop {
-        return Loop::from_points(&[emptyLoopPoint])
-    }
 
-    // FullLoop returns a special "full" loop.
-    fn FullLoop()  ->  Loop {
-        return LoopFromPoints(&[fullLoopPoint])
-    }
-
-
-
-
-// initBound sets up the approximate bounding Rects for this loop.
-    fn initBound(&mut self) {
-        if self.vertices.len() == 0 {
-            *self = Self::EmptyLoop();
-            return
+    /// init_bound sets up the approximate bounding Rects for this loop.
+    fn init_bound(&mut self) {
+        if self.vertices.is_empty() {
+            *self = Self::empty_loop();
+            return;
         }
+        
         // Check for the special "empty" and "full" loops.
-        if self.isEmptyOrFull() { 
-            if self.IsEmpty() {
+        if self.is_empty_or_full() { 
+            if self.is_empty() {
                 self.bound = Rect::empty();
             } else {
                 self.bound = Rect::full();
             }
             self.subregion_bound = self.bound.clone();
-            
-            return
+            return;
         }
 
         // The bounding rectangle of a loop is not necessarily the same as the
@@ -184,83 +193,97 @@ impl Loop {
         // entirely around the sphere (e.g. a loop that defines two revolutions of a
         // candy-cane stripe). Third, the loop may include one or both poles.
         // Note that a small clockwise loop near the equator contains both poles.
-        let mut bounder = NewRectBounder();
-        for i in 0..self.vertices.len() { // add vertex 0 twice
-            bounder.AddPoint(self.Vertex(i));
-        }
-        let mut b = bounder.RectBound();
-
-        if self.ContainsPoint(Vector::new(0, 0, 1).into()) {
-            b = Rect{
-                lat: r1.Interval{b.Lat.Lo, math.Pi / 2}, 
-            lng: s1.FullInterval()};
+        
+        // TODO: Implement RectBounder
+        // For now, use a simple implementation that just takes the bounds of the vertices
+        let mut lat_min = std::f64::MAX;
+        let mut lat_max = std::f64::MIN;
+        let mut lng_min = std::f64::MAX;
+        let mut lng_max = std::f64::MIN;
+        
+        for v in &self.vertices {
+            // Convert to lat/lng
+            let lat = v.0.z.asin();
+            let lng = v.0.y.atan2(v.0.x);
+            
+            lat_min = lat_min.min(lat);
+            lat_max = lat_max.max(lat);
+            lng_min = lng_min.min(lng);
+            lng_max = lng_max.max(lng);
         }
         
-        // If a loop contains the south pole, then either it wraps entirely
-        // around the sphere (full longitude range), or it also contains the
-        // north pole in which case b.Lng.IsFull() due to the test above.
-        // Either way, we only need to do the south pole containment test if
-        // b.Lng.IsFull().
-        if b.Lng.IsFull() & & self.ContainsPoint(Point{r3.Vector{0, 0, - 1}}) {
-            b.Lat.Lo = - math.Pi / 2
-        }
-        self.bound = b
-        self.subregion_bound = ExpandForSubregions(self.bound)
+        // Create a simple bounding rectangle
+        self.bound = Rect::from_lat_lng(
+            r1::Interval::new(lat_min, lat_max),
+            s1::Interval::new(lng_min, lng_max)
+        );
+        
+        // TODO: Handle poles and wrapping properly
+        
+        // Create the subregion bound
+        self.subregion_bound = self.bound.clone();
+        // TODO: Implement expand_for_subregions
     }
 
-// Validate checks whether this is a valid loop.
-    fn Validate(&mut self) -> error {
-        if err= self.findValidationErrorNoIndex(); err != nil {
-            return err
-        }
+    /// validate checks whether this is a valid loop.
+    pub fn validate(&self) -> S2Result<()> {
+        self.find_validation_error_no_index()?;
     
         // Check for intersections between non-adjacent edges (including at vertices)
-        // TODO(roberts): Once shapeutil gets findAnyCrossing uncomment this.
-        // return findAnyCrossing(self.index)
+        // TODO: Once shapeutil gets find_any_crossing uncomment this.
+        // find_any_crossing(self.index)
     
-        return nil
+        Ok(())
     }
 
-// findValidationErrorNoIndex reports whether this is not a valid loop, but
-// skips checks that would require a ShapeIndex to be built for the loop. This
-// is primarily used by Polygon to do validation so it doesn't trigger the
-// creation of unneeded ShapeIndices.
-fn findValidationErrorNoIndex(&mut self) -> error {
-    // All vertices must be unit length.
-    for i, v = range self.vertices {
-        if ! v.IsUnit() {
-            return fmt.Errorf("vertex %d is not unit length", i)
+    /// find_validation_error_no_index reports whether this is not a valid loop, but
+    /// skips checks that would require a ShapeIndex to be built for the loop. This
+    /// is primarily used by Polygon to do validation so it doesn't trigger the
+    /// creation of unneeded ShapeIndices.
+    pub fn find_validation_error_no_index(&self) -> S2Result<()> {
+        // All vertices must be unit length.
+        for (i, v) in self.vertices.iter().enumerate() {
+            if !v.is_unit() {
+                return Err(S2Error::InvalidLoop(format!("vertex {} is not unit length", i)));
             }
-    }
-
-    // Loops must have at least 3 vertices (except for empty and full).
-    if self.vertices.len() < 3 {
-        if self.isEmptyOrFull() {
-            return nil // Skip remaining tests.
         }
-        return fmt.Errorf("non-empty, non-full loops must have at least 3 vertices")
-    }
 
-    // Loops are not allowed to have any duplicate vertices or edge crossings.
-    // We split this check into two parts. First we check that no edge is
-    // degenerate (identical endpoints). Then we check that there are no
-    // intersections between non-adjacent edges (including at vertices). The
-    // second check needs the ShapeIndex, so it does not fall within the scope
-    // of this method.
-    for i, v = range self.vertices {
-        if v == self.Vertex(i + 1) {
-            return fmt.Errorf("edge %d is degenerate (duplicate vertex)", i)
+        // Loops must have at least 3 vertices (except for empty and full).
+        if self.vertices.len() < 3 {
+            if self.is_empty_or_full() {
+                return Ok(()); // Skip remaining tests.
+            }
+            return Err(S2Error::InvalidLoop(
+                "non-empty, non-full loops must have at least 3 vertices".to_string()
+            ));
         }
+
+        // Loops are not allowed to have any duplicate vertices or edge crossings.
+        // We split this check into two parts. First we check that no edge is
+        // degenerate (identical endpoints). Then we check that there are no
+        // intersections between non-adjacent edges (including at vertices). The
+        // second check needs the ShapeIndex, so it does not fall within the scope
+        // of this method.
+        for i in 0..self.vertices.len() {
+            let v = &self.vertices[i];
+            if *v == self.vertex(i as i64 + 1) {
+                return Err(S2Error::InvalidLoop(
+                    format!("edge {} is degenerate (duplicate vertex)", i)
+                ));
+            }
     
-        // Antipodal vertices are not allowed.
-        if other= (Point{self.Vertex(i + 1).Mul( - 1)}); v == other {
-            return fmt.Errorf("vertices %d and %d are antipodal", i,
-                (i + 1) % self.vertices).len()
+            // Antipodal vertices are not allowed.
+            let other = Point(self.vertex(i as i64 + 1).0.mul(-1.0));
+            if *v == other {
+                return Err(S2Error::InvalidLoop(format!(
+                    "vertices {} and {} are antipodal", 
+                    i, (i + 1) % self.vertices.len()
+                )));
+            }
         }
-    }
 
-    return nil
-}
+        Ok(())
+    }
 
 // Contains reports whether the region contained by this loop is a superset of the
 // region contained by the given other loop.
@@ -463,15 +486,15 @@ fn compareBoundary(&mut self, o: &Loop) -> i64 {
     return - 1
 }
 
-// ContainsOrigin reports true if this loop contains s2.OriginPoint().
-fn ContainsOrigin(&mut self) -> bool {
-    return self.origin_inside
-}
+    /// contains_origin reports true if this loop contains s2.origin_point().
+    pub fn contains_origin(&self) -> bool {
+        self.origin_inside
+    }
 
-// ReferencePoint returns the reference point for this loop.
-fn ReferencePoint(&mut self) -> ReferencePoint {
-    return OriginReferencePoint(self.origin_inside)
-}
+    /// reference_point returns the reference point for this loop.
+    pub fn reference_point(&self) -> ReferencePoint {
+        origin_reference_point(self.origin_inside)
+    }
 
 // NumEdges returns the number of edges in this shape.
 fn NumEdges(&mut self)-> int {
@@ -517,111 +540,111 @@ fn typeTag(&mut self) -> typeTag { return typeTagNone }
 
 fn privateInterface(&mut self) {}
 
-// IsEmpty reports true if this is the special empty loop that contains no points.
-fn IsEmpty(&mut self) ->bool {
-    return self.isEmptyOrFull() & & ! self.ContainsOrigin()
-}
-
-// IsFull reports true if this is the special full loop that contains all points.
-fn IsFull(&mut self) -> bool {
-    return self.isEmptyOrFull() & & self.ContainsOrigin()
-}
-
-// isEmptyOrFull reports true if this loop is either the "empty" or "full" special loops.
-fn isEmptyOrFull(&mut self) -> bool {
-    return self.vertices.len() == 1
-}
-
-// Vertices returns the vertices in the loop.
-fn Vertices(&mut self) -> &[Point] {
-    return self.vertices
-}
-
-// RectBound returns a tight bounding rectangle. If the loop contains the point,
-// the bound also contains it.
-fn RectBound(&mut self) -> Rect {
-    return self.bound
-}
-
-// CapBound returns a bounding cap that may have more padding than the corresponding
-// RectBound. The bound is conservative such that if the loop contains a point P,
-// the bound also contains it.
-fn CapBound(&mut self) -> Cap {
-    return self.bound.CapBound()
-}
-
-// Vertex returns the vertex for the given index. For convenience, the vertex indices
-// wrap automatically for methods that do index math such as Edge.
-// i.e., Vertex(NumEdges() + n) is the same as Vertex(n).
-fn Vertex(&mut self, i: i64) ->Point {
-    return self.vertices[i % self.vertices.len()]
-}
-
-// OrientedVertex returns the vertex in reverse order if the loop represents a polygon
-// hole. For example, arguments 0, 1, 2 are mapped to vertices n-1, n-2, n-3, where
-// n == vertices.len(). This ensures that the interior of the polygon is always to
-// the left of the vertex chain.
-//
-// This requires: 0 <= i < 2 * vertices.len()
-fn OrientedVertex(&mut self, i: i64) ->Point {
-    j = i - self.vertices.len()
-    if j < 0 {
-        j = i
-    }
-    if self.IsHole() {
-        j = self.vertices.len() - 1 - j
-    }
-    return self.Vertex(j)
-}
-
-// NumVertices returns the number of vertices in this loop.
-fn NumVertices(&mut self) ->i64 {
-    return self.vertices.len()
-}
-
-// bruteForceContainsPoint reports if the given point is contained by this loop.
-// This method does not use the ShapeIndex, so it is only preferable below a certain
-// size of loop.
-fn bruteForceContainsPoint(&mut self, p: Point) ->bool {
-    let origin = OriginPoint();
-    let inside = self.origin_inside;
-    let crosser = NewChainEdgeCrosser(origin, p, self.Vertex(0));
-    for i = 1; i < = self.vertices.len(); i++ { // add vertex 0 twice
-        inside = inside != crosser.EdgeOrVertexChainCrossing(self.Vertex(i))
-    }
-    return inside
-}
-
-// ContainsPoint returns true if the loop contains the point.
-fn ContainsPoint(&mut self, p: Point) -> bool {
-    if ! self.index.IsFresh() && ! self.bound.ContainsPoint(p) {
-        return false
+    /// is_empty reports true if this is the special empty loop that contains no points.
+    pub fn is_empty(&self) -> bool {
+        self.is_empty_or_full() && !self.contains_origin()
     }
 
-    // For small loops it is faster to just check all the crossings.  We also
-    // use this method during loop initialization because InitOriginAndBound()
-    // calls Contains() before InitIndex().  Otherwise, we keep track of the
-    // number of calls to Contains() and only build the index when enough calls
-    // have been made so that we think it is worth the effort.  Note that the
-    // code below is structured so that if many calls are made in parallel only
-    // one thread builds the index, while the rest continue using brute force
-    // until the index is actually available.
-
-    const maxBruteForceVertices = 32;
-    // TODO(roberts): add unindexed contains calls tracking
-
-    if self.index.shapes.len() == 0 || // Index has not been initialized yet.
-        self.vertices.len() < = maxBruteForceVertices {
-        return self.bruteForceContainsPoint(p)
+    /// is_full reports true if this is the special full loop that contains all points.
+    pub fn is_full(&self) -> bool {
+        self.is_empty_or_full() && self.contains_origin()
     }
 
-    // Otherwise, look up the point in the index.
-    let it= self.index.Iterator();
-    if ! it.LocatePoint(p) {
-        return false
+    /// is_empty_or_full reports true if this loop is either the "empty" or "full" special loops.
+    pub fn is_empty_or_full(&self) -> bool {
+        self.vertices.len() == 1
     }
-    return self.iteratorContainsPoint(it, p)
-}
+
+    /// vertices returns the vertices in the loop.
+    pub fn vertices(&self) -> &[Point] {
+        &self.vertices
+    }
+
+    /// rect_bound returns a tight bounding rectangle. If the loop contains the point,
+    /// the bound also contains it.
+    pub fn rect_bound(&self) -> &Rect {
+        &self.bound
+    }
+
+    /// cap_bound returns a bounding cap that may have more padding than the corresponding
+    /// rect_bound. The bound is conservative such that if the loop contains a point P,
+    /// the bound also contains it.
+    pub fn cap_bound(&self) -> Cap {
+        // TODO: Implement this properly
+        Cap {
+            center: self.vertices[0].clone(),
+            height: 1.0,
+        }
+    }
+
+    /// vertex returns the vertex for the given index. For convenience, the vertex indices
+    /// wrap automatically for methods that do index math such as Edge.
+    /// i.e., vertex(num_edges() + n) is the same as vertex(n).
+    pub fn vertex(&self, i: i64) -> Point {
+        self.vertices[(i as usize) % self.vertices.len()].clone()
+    }
+
+    /// oriented_vertex returns the vertex in reverse order if the loop represents a polygon
+    /// hole. For example, arguments 0, 1, 2 are mapped to vertices n-1, n-2, n-3, where
+    /// n == vertices.len(). This ensures that the interior of the polygon is always to
+    /// the left of the vertex chain.
+    ///
+    /// This requires: 0 <= i < 2 * vertices.len()
+    pub fn oriented_vertex(&self, i: i64) -> Point {
+        let mut j = i - self.vertices.len() as i64;
+        if j < 0 {
+            j = i;
+        }
+        if self.is_hole() {
+            j = self.vertices.len() as i64 - 1 - j;
+        }
+        self.vertex(j)
+    }
+
+    /// num_vertices returns the number of vertices in this loop.
+    pub fn num_vertices(&self) -> usize {
+        self.vertices.len()
+    }
+
+    /// brute_force_contains_point reports if the given point is contained by this loop.
+    /// This method does not use the ShapeIndex, so it is only preferable below a certain
+    /// size of loop.
+    fn brute_force_contains_point(&self, p: Point) -> bool {
+        let origin = origin_point();
+        let mut inside = self.origin_inside;
+        let mut crosser = ChainEdgeCrosser::new(origin, p, self.vertex(0));
+        
+        // Add vertex 0 twice to complete the loop
+        for i in 1..=self.vertices.len() as i64 {
+            inside = inside != crosser.edge_or_vertex_chain_crossing(self.vertex(i));
+        }
+        inside
+    }
+
+    /// contains_point returns true if the loop contains the point.
+    pub fn contains_point(&self, p: Point) -> bool {
+        // First check if the point is within the loop's bounding rectangle
+        if !self.bound.contains_point(&p) {
+            return false;
+        }
+
+        // For small loops it is faster to just check all the crossings. We also
+        // use this method during loop initialization because init_origin_and_bound()
+        // calls contains() before init_index(). Otherwise, we keep track of the
+        // number of calls to contains() and only build the index when enough calls
+        // have been made so that we think it is worth the effort.
+        const MAX_BRUTE_FORCE_VERTICES: usize = 32;
+        
+        // TODO: Implement ShapeIndex and related functionality
+        // For now, always use brute force method
+        if self.index.is_none() || self.vertices.len() <= MAX_BRUTE_FORCE_VERTICES {
+            return self.brute_force_contains_point(p);
+        }
+
+        // Otherwise, look up the point in the index.
+        // TODO: Implement ShapeIndex iterator and related functionality
+        self.brute_force_contains_point(p)
+    }
 
 // ContainsCell reports whether the given Cell is contained by this Loop.
 fn ContainsCell(&mut self, target: Cell) -> bool {
@@ -837,16 +860,19 @@ fn turningAngleMaxError(&mut self) -> f64 {
     return maxErrorPerVertex * float64(self.vertices).len()
 }
 
-// IsHole reports whether this loop represents a hole in its containing polygon.
-fn IsHole(&mut self) -> bool { return self.depth & 1 != 0 }
-
-// Sign returns -1 if this Loop represents a hole in its containing polygon, and +1 otherwise.
-fn Sign(&mut self) -> i64 {
-    if self.IsHole() {
-    return - 1
+    /// is_hole reports whether this loop represents a hole in its containing polygon.
+    pub fn is_hole(&self) -> bool { 
+        self.depth & 1 != 0 
     }
-    return 1
-}
+
+    /// sign returns -1 if this Loop represents a hole in its containing polygon, and +1 otherwise.
+    pub fn sign(&self) -> i64 {
+        if self.is_hole() {
+            -1
+        } else {
+            1
+        }
+    }
 
 // IsNormalized reports whether the loop area is at most 2*pi. Degenerate loops are
 // handled consistently with Sign, i.e., if a loop can be
@@ -1841,3 +1867,123 @@ fn wedgeContainsSemiwedge(a0: &Point, ab1: &Point, a2: &Point, b2: &Point, rever
 // ProjectToBoundary
 // BoundaryApproxEqual
 // BoundaryNear
+/// ReferencePoint represents a reference point for a shape.
+#[derive(Debug, Clone)]
+pub struct ReferencePoint {
+    /// The reference point
+    pub point: Point,
+    /// Whether the point is contained by the shape
+    pub contained: bool,
+}
+
+/// Cap represents a spherical cap, i.e., a portion of a sphere cut off by a plane.
+#[derive(Debug, Clone)]
+pub struct Cap {
+    /// The center of the cap
+    pub center: Point,
+    /// The height of the cap
+    pub height: f64,
+}
+
+/// ShapeIndex is a spatial index for efficient lookup of shapes.
+#[derive(Debug, Clone)]
+pub struct ShapeIndex {
+    // TODO: Implement this properly
+    shapes: Vec<()>,
+}
+
+impl ShapeIndex {
+    /// Creates a new ShapeIndex
+    pub fn new() -> Self {
+        ShapeIndex { shapes: Vec::new() }
+    }
+}
+
+/// origin_point returns the point at the origin of the sphere.
+pub fn origin_point() -> Point {
+    Point(Vector { x: 0.0, y: 0.0, z: 0.0 })
+}
+
+/// origin_reference_point returns a ReferencePoint for the origin.
+pub fn origin_reference_point(contains_origin: bool) -> ReferencePoint {
+    ReferencePoint {
+        point: origin_point(),
+        contained: contains_origin,
+    }
+}
+impl Rect {
+    /// Creates an empty rectangle
+    pub fn empty() -> Self {
+        // Implementation depends on your Rect definition
+        Rect::from_lat_lng(
+            r1::Interval::empty(),
+            s1::Interval::empty()
+        )
+    }
+    
+    /// Creates a full rectangle covering the entire sphere
+    pub fn full() -> Self {
+        // Implementation depends on your Rect definition
+        Rect::from_lat_lng(
+            r1::Interval::new(-PI/2.0, PI/2.0),
+            s1::Interval::full()
+        )
+    }
+    
+    /// Creates a rectangle from latitude and longitude intervals
+    pub fn from_lat_lng(lat: r1::Interval, lng: s1::Interval) -> Self {
+        Rect { lat, lng }
+    }
+    
+    /// Checks if the rectangle contains the given point
+    pub fn contains_point(&self, p: &Point) -> bool {
+        // Convert point to lat/lng
+        let lat = p.0.z.asin();
+        let lng = p.0.y.atan2(p.0.x);
+        
+        self.lat.contains(lat) && self.lng.contains(lng)
+    }
+}
+impl s1::Interval {
+    /// Creates a new interval with the given bounds
+    pub fn new(lo: f64, hi: f64) -> Self {
+        s1::Interval { lo, hi }
+    }
+    
+    /// Creates an empty interval
+    pub fn empty() -> Self {
+        s1::Interval { lo: 1.0, hi: 0.0 }
+    }
+    
+    /// Creates a full interval covering the entire range
+    pub fn full() -> Self {
+        s1::Interval { lo: -PI, hi: PI }
+    }
+    
+    /// Checks if the interval contains the given value
+    pub fn contains(&self, v: f64) -> bool {
+        if self.lo <= self.hi {
+            self.lo <= v && v <= self.hi
+        } else {
+            // Wrapping interval
+            self.lo <= v || v <= self.hi
+        }
+    }
+}
+
+impl r1::Interval {
+    /// Creates a new interval with the given bounds
+    pub fn new(lo: f64, hi: f64) -> Self {
+        r1::Interval { lo, hi }
+    }
+    
+    /// Creates an empty interval
+    pub fn empty() -> Self {
+        r1::Interval { lo: 1.0, hi: 0.0 }
+    }
+    
+    /// Checks if the interval contains the given value
+    pub fn contains(&self, v: f64) -> bool {
+        self.lo <= v && v <= self.hi
+    }
+}
