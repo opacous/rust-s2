@@ -315,7 +315,36 @@ impl EdgeCrosser {
                     bda
                 };
 
-                if bda_val != acb {
+                // In the Go implementation, if bda is Indeterminate, it's recalculated
+                // using expensiveSign. We need to ensure we're not comparing an
+                // Indeterminate value directly.
+                if bda_val == Direction::Indeterminate {
+                    println!("    bda is Indeterminate, recalculating");
+                    let recalculated_bda = expensive_sign(&self.a, &self.b, &d);
+                    println!("    Recalculated bda: {:?}", recalculated_bda);
+                    if recalculated_bda != acb {
+                        println!("    Recalculated bda != acb -> DoNotCross");
+                        Crossing::DoNotCross
+                    } else {
+                        // Continue with the rest of the checks
+                        let cbd = -robust_sign(&self.c, &d, &self.b);
+                        println!("    cbd: {:?}", cbd);
+                        if cbd != acb {
+                            println!("    cbd != acb -> DoNotCross");
+                            Crossing::DoNotCross
+                        } else {
+                            let dac = robust_sign(&self.c, &d, &self.a);
+                            println!("    dac: {:?}", dac);
+                            if dac != acb {
+                                println!("    dac != acb -> DoNotCross");
+                                Crossing::DoNotCross
+                            } else {
+                                println!("    All signs match -> Cross");
+                                Crossing::Cross
+                            }
+                        }
+                    }
+                } else if bda_val != acb {
                     println!("    bda != acb -> DoNotCross");
                     Crossing::DoNotCross
                 } else {
