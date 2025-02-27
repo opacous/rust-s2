@@ -1888,20 +1888,24 @@ impl compareBoundaryRelation {
         return & compareBoundaryRelation{reverse: reverse}
     }
 
-    fn aCrossingTarget(&mut self) -> crossingTarget { return
-    crossingTargetDontCare }
-    fn bCrossingTarget(&mut self) -> crossingTarget { return
-    crossingTargetDontCare }
-    fn wedgesCross(&mut self, a0: &Point, ab1: &Point, a2: &Point, b0: &Point, b2: &Point) -> bool {
+    fn a_crossing_target(&self) -> CrossingTarget { 
+        CrossingTarget::DontCare 
+    }
+    
+    fn b_crossing_target(&self) -> CrossingTarget { 
+        CrossingTarget::DontCare 
+    }
+    
+    fn wedges_cross(&mut self, a0: &Point, ab1: &Point, a2: &Point, b0: &Point, b2: &Point) -> bool {
         // Because we don't care about the interior of the other, only its boundary,
         // it is sufficient to check whether this one contains the semiwedge (ab1, b2).
-        c.foundSharedVertex = true
-        if wedgeContainsSemiwedge(a0, ab1, a2, b2, c.reverse) {
-        c.containsEdge = true
+        self.foundSharedVertex = true;
+        if wedge_contains_semiwedge(a0, ab1, a2, b2, self.reverse) {
+            self.containsEdge = true;
         } else {
-        c.excludesEdge = true
+            self.excludesEdge = true;
         }
-        return c.containsEdge & & c.excludesEdge
+        self.containsEdge && self.excludesEdge
     }
 }
 /// wedge_contains_semiwedge reports whether the wedge (a0, ab1, a2) contains the
