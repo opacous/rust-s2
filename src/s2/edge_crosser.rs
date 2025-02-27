@@ -352,6 +352,7 @@ mod tests {
     use super::*;
     use crate::r3::vector::Vector;
     use std::f64::EPSILON as DBL_EPSILON;
+    use crate::point::ORIGIN;
 
     // Helper function to create a Point from coordinates
     fn point(x: f64, y: f64, z: f64) -> Point {
@@ -360,7 +361,7 @@ mod tests {
             // In the Go implementation, OriginPoint() returns a special point
             // that's treated differently in the edge crossing logic
             println!("Creating origin point (0,0,0)");
-            return Point(Vector::new(0.0, 0.0, 0.0));
+            return ORIGIN;
         }
         let normalized = Vector::new(x, y, z).normalize();
         println!("Creating point ({}, {}, {}) -> normalized: ({}, {}, {})", 
@@ -452,8 +453,8 @@ mod tests {
     #[test]
     fn test_edge_crosser_crossings() {
         // Equivalent to math.Nextafter(1, 0) in Go
-        let na1 = f64::from_bits(0x3fefffffffffffff); // Slightly less than 1.0
-        let na2 = f64::from_bits(0x3ff0000000000001); // Slightly more than 1.0
+        let na1 = next_after(1.0, 0.0); // Slightly less than 1.0
+        let na2 = next_after(1.0, 2.0); // Slightly more than 1.0
 
         let tests = vec![
             (
@@ -604,5 +605,36 @@ mod tests {
                 edge_or_vertex != (robust == Crossing::Maybe),
             );
         }
+    }
+}
+
+/// Returns the next representable float64 value after x in the direction of y.
+///
+/// If x equals y, the result is y.
+/// If either x or y is NaN, the result is NaN.
+/// If x is zero, the result is the smallest positive (when y > 0) or
+/// negative (when y < 0) normalized number.
+pub fn next_after(x: f64, y: f64) -> f64 {
+    if x.is_nan() || y.is_nan() {
+        return f64::NAN;
+    }
+
+    if x == y {
+        return x;
+    }
+
+    if x == 0.0 {
+        // Return smallest positive or negative number depending on y's sign
+        return if y > 0.0 { f64::from_bits(1) } else { f64::from_bits(1 | (1u64 << 63)) };
+    }
+
+    let bits = x.to_bits();
+
+    if (y > x) == (x > 0.0) {
+        // Moving away from zero or toward infinity
+        f64::from_bits(bits + 1)
+    } else {
+        // Moving toward zero or toward negative infinity
+        f64::from_bits(bits - 1)
     }
 }
