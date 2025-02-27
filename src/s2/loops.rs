@@ -285,9 +285,9 @@ impl Loop {
         Ok(())
     }
 
-// Contains reports whether the region contained by this loop is a superset of the
-// region contained by the given other loop.
-fn Contains(&mut self, o: &Loop) -> bool {
+/// Contains reports whether the region contained by this loop is a superset of the
+/// region contained by the given other loop.
+pub fn contains(&self, o: &Loop) -> bool {
     // For a loop A to contain the loop B, all of the following must
     // be true:
     //
@@ -303,64 +303,64 @@ fn Contains(&mut self, o: &Loop) -> bool {
     // The second part of (3) is necessary to detect the case of two loops whose
     // union is the entire sphere, i.e. two loops that contains each other's
     // boundaries but not each other's interiors.
-    if ! self.subregion_bound.Contains(o.bound) {
-        return false
+    if !self.subregion_bound.contains(&o.bound) {
+        return false;
     }
 
-    // Special cases to handle either loop being empty or fulself.
-    if self.isEmptyOrFull() | | o.isEmptyOrFull() {
-        return self.IsFull() | | o.IsEmpty()
+    // Special cases to handle either loop being empty or full.
+    if self.is_empty_or_full() || o.is_empty_or_full() {
+        return self.is_full() || o.is_empty();
     }
 
     // Check whether there are any edge crossings, and also check the loop
     // relationship at any shared vertices.
-    relation = & containsRelation{}
-    if hasCrossingRelation(l, o, relation) {
-        return false
+    let mut relation = containsRelation { foundSharedVertex: false };
+    if hasCrossingRelation(self, o, &relation) {
+        return false;
     }
 
     // There are no crossings, and if there are any shared vertices then A
     // contains B locally at each shared vertex.
     if relation.foundSharedVertex {
-        return true
+        return true;
     }
 
     // Since there are no edge intersections or shared vertices, we just need to
     // test condition (3) above. We can skip this test if we discovered that A
     // contains at least one point of B while checking for edge crossings.
-    if ! self.ContainsPoint(o.Vertex(0)) {
-        return false
+    if !self.contains_point(o.vertex(0)) {
+        return false;
     }
 
     // We still need to check whether (A union B) is the entire sphere.
     // Normally this check is very cheap due to the bounding box precondition.
-    if (o.subregion_bound.Contains(self.bound) | | o.bound.Union(self.bound).IsFull()) &&
-        o.ContainsPoint(self.Vertex(0)) {
-        return false
+    if (o.subregion_bound.contains(&self.bound) || o.bound.union(&self.bound).is_full()) &&
+        o.contains_point(self.vertex(0)) {
+        return false;
     }
     
-    return true
+    return true;
 }
 
-// Intersects reports whether the region contained by this loop intersects the region
-// contained by the other loop.
-fn Intersects(&mut self, o: &Loop) -> bool {
+/// Intersects reports whether the region contained by this loop intersects the region
+/// contained by the other loop.
+pub fn intersects(&self, o: &Loop) -> bool {
     // Given two loops, A and B, A.Intersects(B) if and only if !A.Complement().Contains(B).
     //
     // This code is similar to Contains, but is optimized for the case
     // where both loops enclose less than half of the sphere.
-    if ! self.bound.Intersects(o.bound) {
-        return false
+    if !self.bound.intersects(&o.bound) {
+        return false;
     }
 
     // Check whether there are any edge crossings, and also check the loop
     // relationship at any shared vertices.
-    relation = & intersectsRelation{}
-    if hasCrossingRelation(l, o, relation) {
-        return true
+    let mut relation = intersectsRelation { foundSharedVertex: false };
+    if hasCrossingRelation(self, o, &relation) {
+        return true;
     }
     if relation.foundSharedVertex {
-        return false
+        return false;
     }
 
     // Since there are no edge intersections or shared vertices, the loops
@@ -371,119 +371,119 @@ fn Intersects(&mut self, o: &Loop) -> bool {
 
     // Check whether A contains B, or A and B contain each other's boundaries.
     // (Note that A contains all the vertices of B in either case.)
-    if self.subregion_bound.Contains(o.bound) | | self.bound.Union(o.bound).IsFull() {
-        if self.ContainsPoint(o.Vertex(0)) {
-            return true
+    if self.subregion_bound.contains(&o.bound) || self.bound.union(&o.bound).is_full() {
+        if self.contains_point(o.vertex(0)) {
+            return true;
         }
     }
     // Check whether B contains A.
-    if o.subregion_bound.Contains(self.bound) {
-        if o.ContainsPoint(self.Vertex(0)) {
-            return true
+    if o.subregion_bound.contains(&self.bound) {
+        if o.contains_point(self.vertex(0)) {
+            return true;
         }
     }
-    return false
+    return false;
 }
 
-// Equal reports whether two loops have the same vertices in the same linear order
-// (i.e., cyclic rotations are not allowed).
-fn Equal(&mut self, other: &Loop) -> bool {
-    if self.vertices) != len(other.vertices.len() {
-    return false
+/// Equal reports whether two loops have the same vertices in the same linear order
+/// (i.e., cyclic rotations are not allowed).
+pub fn equal(&self, other: &Loop) -> bool {
+    if self.vertices.len() != other.vertices.len() {
+        return false;
     }
 
-    for i, v= range self.vertices {
-    if v != other.Vertex(i) {
-    return false
+    for (i, v) in self.vertices.iter().enumerate() {
+        if v != &other.vertex(i as i64) {
+            return false;
+        }
     }
-    }
-    return true
+    return true;
 }
 
-// BoundaryEqual reports whether the two loops have the same boundary. This is
-// true if and only if the loops have the same vertices in the same cyclic order
-// (i.e., the vertices may be cyclically rotated). The empty and full loops are
-// considered to have different boundaries.
-fn BoundaryEqual(&mut self, o: &Loop) -> bool {
-    if self.vertices) != len(o.vertices.len() {
-        return false
+/// BoundaryEqual reports whether the two loops have the same boundary. This is
+/// true if and only if the loops have the same vertices in the same cyclic order
+/// (i.e., the vertices may be cyclically rotated). The empty and full loops are
+/// considered to have different boundaries.
+pub fn boundary_equal(&self, o: &Loop) -> bool {
+    if self.vertices.len() != o.vertices.len() {
+        return false;
     }
 
     // Special case to handle empty or full loops.  Since they have the same
     // number of vertices, if one loop is empty/full then so is the other.
-    if self.isEmptyOrFull() {
-    return self.IsEmpty() == o.IsEmpty()
+    if self.is_empty_or_full() {
+        return self.is_empty() == o.is_empty();
     }
 
     // Loop through the vertices to find the first of ours that matches the
     // starting vertex of the other loop. Use that offset to then 'align' the
     // vertices for comparison.
-    for offset, vertex= range self.vertices {
-        if vertex == o.Vertex(0) {
+    for (offset, vertex) in self.vertices.iter().enumerate() {
+        if vertex == &o.vertex(0) {
             // There is at most one starting offset since loop vertices are unique.
-            for i= 0; i < self.vertices.len(); i + + {
-                if self.Vertex(i + offset) != o.Vertex(i) {
-                    return false
+            for i in 0..self.vertices.len() {
+                if self.vertex((i + offset) as i64) != o.vertex(i as i64) {
+                    return false;
                 }
             }
-            return true
+            return true;
         }
     }
-    return false
+    return false;
 }
 
-// compareBoundary returns +1 if this loop contains the boundary of the other loop,
-// -1 if it excludes the boundary of the other, and 0 if the boundaries of the two
-// loops cross. Shared edges are handled as follows:
-//
-//	If XY is a shared edge, define Reversed(XY) to be true if XY
-//	  appears in opposite directions in both loops.
-//	Then this loop contains XY if and only if Reversed(XY) == the other loop is a hole.
-//	(Intuitively, this checks whether this loop contains a vanishingly small region
-//	extending from the boundary of the other toward the interior of the polygon to
-//	which the other belongs.)
-//
-// This fntion is used for testing containment and intersection of
-// multi-loop polygons. Note that this method is not symmetric, since the
-// result depends on the direction of this loop but not on the direction of
-// the other loop (in the absence of shared edges).
-//
-// This requires that neither loop is empty, and if other loop IsFull, then it must not
-// be a hole.
-fn compareBoundary(&mut self, o: &Loop) -> i64 {
+/// compare_boundary returns +1 if this loop contains the boundary of the other loop,
+/// -1 if it excludes the boundary of the other, and 0 if the boundaries of the two
+/// loops cross. Shared edges are handled as follows:
+///
+/// If XY is a shared edge, define Reversed(XY) to be true if XY
+/// appears in opposite directions in both loops.
+/// Then this loop contains XY if and only if Reversed(XY) == the other loop is a hole.
+/// (Intuitively, this checks whether this loop contains a vanishingly small region
+/// extending from the boundary of the other toward the interior of the polygon to
+/// which the other belongs.)
+///
+/// This function is used for testing containment and intersection of
+/// multi-loop polygons. Note that this method is not symmetric, since the
+/// result depends on the direction of this loop but not on the direction of
+/// the other loop (in the absence of shared edges).
+///
+/// This requires that neither loop is empty, and if other loop is_full, then it must not
+/// be a hole.
+pub fn compare_boundary(&self, o: &Loop) -> i64 {
     // The bounds must intersect for containment or crossing.
-    if ! self.bound.Intersects(o.bound) {
-        return - 1
+    if !self.bound.intersects(&o.bound) {
+        return -1;
     }
 
     // Full loops are handled as though the loop surrounded the entire sphere.
-    if self.IsFull() {
-        return 1
+    if self.is_full() {
+        return 1;
     }
-    if o.IsFull() {
-        return - 1
+    if o.is_full() {
+        return -1;
     }
 
     // Check whether there are any edge crossings, and also check the loop
     // relationship at any shared vertices.
-    relation = newCompareBoundaryRelation(o.IsHole())
-    if hasCrossingRelation(l, o, relation) {
-        return 0
+    let mut relation = new_compare_boundary_relation(o.is_hole());
+    if hasCrossingRelation(self, o, &relation) {
+        return 0;
     }
     if relation.foundSharedVertex {
         if relation.containsEdge { 
-            return 1
+            return 1;
         }
     
-        return - 1
+        return -1;
     }
 
     // There are no edge intersections or shared vertices, so we can check
     // whether A contains an arbitrary vertex of B.
-    if self.ContainsPoint(o.Vertex(0)) {
-        return 1
+    if self.contains_point(o.vertex(0)) {
+        return 1;
     }
-    return - 1
+    return -1;
 }
 
     /// contains_origin reports true if this loop contains s2.origin_point().
@@ -504,33 +504,33 @@ fn NumEdges(&mut self)-> int {
     return self.vertices.len()
 }
 
-// Edge returns the endpoints for the given edge index.
-fn Edge(&mut self, i: i64) -> Edge {
-    return Edge{self.Vertex(i), self.Vertex(i + 1)}
+/// Edge returns the endpoints for the given edge index.
+pub fn edge(&self, i: i64) -> Edge {
+    Edge { v0: self.vertex(i), v1: self.vertex(i + 1) }
 }
 
-// NumChains reports the number of contiguous edge chains in the Loop.
-fn NumChains(&mut self) -> i64 {
-    if self.IsEmpty() {
-    return 0
+/// NumChains reports the number of contiguous edge chains in the Loop.
+pub fn num_chains(&self) -> i64 {
+    if self.is_empty() {
+        return 0;
     }
-    return 1
+    return 1;
 }
 
-// Chain returns the i-th edge chain in the Shape.
-fn Chain(&mut self, chainID: i64) -> Chain {
-    return Chain{0, self.NumEdges()}
+/// Chain returns the i-th edge chain in the Shape.
+pub fn chain(&self, chain_id: i64) -> Chain {
+    Chain { start: 0, length: self.num_edges() }
 }
 
-// ChainEdge returns the j-th edge of the i-th edge chain.
-fn ChainEdge(&mut self, chainID: i64, offset: i64) -> Edge {
-    return Edge{self.Vertex(offset), self.Vertex(offset + 1)}
+/// ChainEdge returns the j-th edge of the i-th edge chain.
+pub fn chain_edge(&self, chain_id: i64, offset: i64) -> Edge {
+    Edge { v0: self.vertex(offset), v1: self.vertex(offset + 1) }
 }
 
-// ChainPosition returns a ChainPosition pair (i, j) such that edgeID is the
-// j-th edge of the Loop.
-fn  ChainPosition(&mut self, edgeID: i64) -> ChainPosition {
-    return ChainPosition{0, edgeID}
+/// ChainPosition returns a ChainPosition pair (i, j) such that edgeID is the
+/// j-th edge of the Loop.
+pub fn chain_position(&self, edge_id: i64) -> ChainPosition {
+    ChainPosition { chain_id: 0, offset: edge_id }
 }
 
 // Dimension returns the dimension of the geometry represented by this Loop.
@@ -646,10 +646,10 @@ fn privateInterface(&mut self) {}
         self.brute_force_contains_point(p)
     }
 
-// ContainsCell reports whether the given Cell is contained by this Loop.
-fn ContainsCell(&mut self, target: Cell) -> bool {
-    let it = self.index.Iterator();
-    let relation = it.LocateCellID(target.ID());
+/// ContainsCell reports whether the given Cell is contained by this Loop.
+pub fn contains_cell(&self, target: &Cell) -> bool {
+    let it = self.index.as_ref().unwrap().iterator();
+    let relation = it.locate_cell_id(target.id());
 
     // If "target" is disjoint from all index cells, it is not contained.
     // Similarly, if "target" is subdivided into one or more index cells then it
@@ -670,10 +670,10 @@ fn ContainsCell(&mut self, target: Cell) -> bool {
     self.iteratorContainsPoint(it, target.Center())
 }
 
-// IntersectsCell reports whether this Loop intersects the given celself.
-fn IntersectsCell(&mut self, target: Cell) -> bool {
-    let it = self.index.Iterator();
-    let relation = it.LocateCellID(target.ID());
+/// IntersectsCell reports whether this Loop intersects the given cell.
+pub fn intersects_cell(&self, target: &Cell) -> bool {
+    let it = self.index.as_ref().unwrap().iterator();
+    let relation = it.locate_cell_id(target.id());
 
     // If target does not overlap any index cell, there is no intersection.
     if relation == Disjoint {
@@ -698,112 +698,112 @@ fn IntersectsCell(&mut self, target: Cell) -> bool {
     return self.iteratorContainsPoint(it, target.Center())
 }
 
-// CellUnionBound computes a covering of the Loop.
-fn CellUnionBound(&mut self) -> &[CellID] {
-    return self.CapBound().CellUnionBound()
+/// CellUnionBound computes a covering of the Loop.
+pub fn cell_union_bound(&self) -> Vec<CellID> {
+    self.cap_bound().cell_union_bound()
 }
 
-// boundaryApproxIntersects reports if the loop's boundary intersects target.
-// It may also return true when the loop boundary does not intersect target but
-// some edge comes within the worst-case error tolerance.
-//
-// This requires that it.Locate(target) returned Indexed.
-fn boundaryApproxIntersects(&mut self, it: ShapeIndexIterator, target: Cell) -> bool {
-    aClipped = it.IndexCell().findByShapeID(0)
+/// boundary_approx_intersects reports if the loop's boundary intersects target.
+/// It may also return true when the loop boundary does not intersect target but
+/// some edge comes within the worst-case error tolerance.
+///
+/// This requires that it.locate(target) returned Indexed.
+fn boundary_approx_intersects(&self, it: &ShapeIndexIterator, target: &Cell) -> bool {
+    let a_clipped = it.index_cell().find_by_shape_id(0);
 
     // If there are no edges, there is no intersection.
-    if aClipped.edges.len() == 0 {
-    return false
+    if a_clipped.edges.is_empty() {
+        return false;
     }
 
     // We can save some work if target is the index cell itself.
-    if it.CellID() == target.ID() {
-    return true
+    if it.cell_id() == target.id() {
+        return true;
     }
 
     // Otherwise check whether any of the edges intersect target.
-    maxError = (faceClipErrorUVCoord + intersectsRectErrorUVDist)
-    bound = target.BoundUV().ExpandedByMargin(maxError)
-    for _, ai = range aClipped.edges {
-    v0, v1, ok = ClipToPaddedFace(self.Vertex(ai), self.Vertex(ai+1), target.Face(), maxError)
-    if ok & & edgeIntersectsRect(v0, v1, bound) {
-    return true
+    let max_error = (FACE_CLIP_ERROR_UV_COORD + INTERSECTS_RECT_ERROR_UV_DIST);
+    let bound = target.bound_uv().expanded_by_margin(max_error);
+    for &ai in &a_clipped.edges {
+        let (v0, v1, ok) = clip_to_padded_face(self.vertex(ai), self.vertex(ai+1), target.face(), max_error);
+        if ok && edge_intersects_rect(v0, v1, bound) {
+            return true;
+        }
     }
-    }
-    return false
+    return false;
 }
 
-// iteratorContainsPoint reports if the iterator that is positioned at the ShapeIndexCell
-// that may contain p, contains the point p.
-fn iteratorContainsPoint(&mut self, it: ShapeIndexIterator, p: Point) -> bool {
+/// iterator_contains_point reports if the iterator that is positioned at the ShapeIndexCell
+/// that may contain p, contains the point p.
+fn iterator_contains_point(&self, it: &ShapeIndexIterator, p: Point) -> bool {
     // Test containment by drawing a line segment from the cell center to the
     // given point and counting edge crossings.
-    aClipped = it.IndexCell().findByShapeID(0)
-    inside = aClipped.containsCenter
-    if aClipped.edges.len() > 0 {
-    center= it.Center()
-    crosser= NewEdgeCrosser(center, p)
-    aiPrev= - 2
-    for _, ai= range aClipped.edges {
-    if ai != aiPrev + 1 {
-    crosser.RestartAt(self.Vertex(ai))
+    let a_clipped = it.index_cell().find_by_shape_id(0);
+    let mut inside = a_clipped.contains_center;
+    if !a_clipped.edges.is_empty() {
+        let center = it.center();
+        let mut crosser = EdgeCrosser::new(center, p);
+        let mut ai_prev = -2;
+        for &ai in &a_clipped.edges {
+            if ai != ai_prev + 1 {
+                crosser.restart_at(self.vertex(ai));
+            }
+            ai_prev = ai;
+            inside = inside != crosser.edge_or_vertex_chain_crossing(self.vertex(ai + 1));
+        }
     }
-    aiPrev = ai
-    inside = inside != crosser.EdgeOrVertexChainCrossing(self.Vertex(ai + 1))
-    }
-    }
-    return inside
+    return inside;
 }
 
-// RegularLoop creates a loop with the given number of vertices, all
-// located on a circle of the specified radius around the given center.
-fn RegularLoop(center: Point, radius: Angle, numVertices: i64) -> Loop {
-    return RegularLoopForFrame(getFrame(center), radius, numVertices)
+/// regular_loop creates a loop with the given number of vertices, all
+/// located on a circle of the specified radius around the given center.
+pub fn regular_loop(center: Point, radius: Angle, num_vertices: i64) -> Loop {
+    regular_loop_for_frame(get_frame(center), radius, num_vertices)
 }
 
-// RegularLoopForFrame creates a loop centered around the z-axis of the given
-// coordinate frame, with the first vertex in the direction of the positive x-axis.
-fn RegularLoopForFrame(frame: matrix3x3, radius: Angle, numVertices: i64) -> Loop {
-    return LoopFromPoints(regularPointsForFrame(frame, radius, numVertices))
+/// regular_loop_for_frame creates a loop centered around the z-axis of the given
+/// coordinate frame, with the first vertex in the direction of the positive x-axis.
+pub fn regular_loop_for_frame(frame: Matrix3<f64>, radius: Angle, num_vertices: i64) -> Loop {
+    Loop::from_points(&regular_points_for_frame(frame, radius, num_vertices))
 }
 
-// CanonicalFirstVertex returns a first index and a direction (either +1 or -1)
-// such that the vertex sequence (first, first+dir, ..., first+(n-1)*dir) does
-// not change when the loop vertex order is rotated or inverted. This allows the
-// loop vertices to be traversed in a canonical order. The return values are
-// chosen such that (first, ..., first+n*dir) are in the range [0, 2*n-1] as
-// expected by the Vertex method.
-fn CanonicalFirstVertex(&mut self) -> (i64, i64) {
-    firstIdx = 0
-    n= self.vertices.len()
-    for i= 1; i < n; i + + {
-    if self.Vertex(i).Cmp(self.Vertex(firstIdx).Vector) == - 1 {
-    firstIdx = i
-    }
-    }
-
-    // 0 <= firstIdx <= n-1, so (firstIdx+n*dir) <= 2*n-1.
-    if self.Vertex(firstIdx + 1).Cmp(self.Vertex(firstIdx + n -1).Vector) == - 1 {
-    return firstIdx, 1
+/// canonical_first_vertex returns a first index and a direction (either +1 or -1)
+/// such that the vertex sequence (first, first+dir, ..., first+(n-1)*dir) does
+/// not change when the loop vertex order is rotated or inverted. This allows the
+/// loop vertices to be traversed in a canonical order. The return values are
+/// chosen such that (first, ..., first+n*dir) are in the range [0, 2*n-1] as
+/// expected by the vertex method.
+pub fn canonical_first_vertex(&self) -> (i64, i64) {
+    let mut first_idx = 0;
+    let n = self.vertices.len() as i64;
+    for i in 1..n {
+        if self.vertex(i).cmp(&self.vertex(first_idx).0) == Ordering::Less {
+            first_idx = i;
+        }
     }
 
-    // n <= firstIdx <= 2*n-1, so (firstIdx+n*dir) >= 0.
-    firstIdx += n
-    return firstIdx, - 1
+    // 0 <= first_idx <= n-1, so (first_idx+n*dir) <= 2*n-1.
+    if self.vertex(first_idx + 1).cmp(&self.vertex(first_idx + n - 1).0) == Ordering::Less {
+        return (first_idx, 1);
+    }
+
+    // n <= first_idx <= 2*n-1, so (first_idx+n*dir) >= 0.
+    first_idx += n;
+    return (first_idx, -1);
 }
 
-// TurningAngle returns the sum of the turning angles at each vertex. The return
-// value is positive if the loop is counter-clockwise, negative if the loop is
-// clockwise, and zero if the loop is a great circle. Degenerate and
-// nearly-degenerate loops are handled consistently with Sign. So for example,
-// if a loop has zero area (i.e., it is a very small CCW loop) then the turning
-// angle will always be negative.
-//
-// This quantity is also called the "geodesic curvature" of the loop.
-fn TurningAngle(&mut self) -> f64 {
+/// turning_angle returns the sum of the turning angles at each vertex. The return
+/// value is positive if the loop is counter-clockwise, negative if the loop is
+/// clockwise, and zero if the loop is a great circle. Degenerate and
+/// nearly-degenerate loops are handled consistently with sign. So for example,
+/// if a loop has zero area (i.e., it is a very small CCW loop) then the turning
+/// angle will always be negative.
+///
+/// This quantity is also called the "geodesic curvature" of the loop.
+pub fn turning_angle(&self) -> f64 {
     // For empty and full loops, we return the limit value as the loop area
     // approaches 0 or 4*Pi respectively.
-    if self.isEmptyOrFull() {
+    if self.is_empty_or_full() {
     if self.ContainsOrigin() {
     return - 2 * math.Pi
     }
@@ -826,29 +826,38 @@ fn TurningAngle(&mut self) -> f64 {
     // spiral shapes, where the partial sum of the turning angles can be linear
     // in the number of vertices.) To avoid this we use the Kahan summation
     // algorithm (http://en.wikipedia.org/wiki/Kahan_summation_algorithm).
-    n = self.vertices.len()
-    i, dir = self.CanonicalFirstVertex()
-    sum = TurnAngle(self.Vertex((i+n-dir) % n), self.Vertex(i), self.Vertex((i+dir) % n))
+    let n_vertices = self.vertices.len() as i64;
+    let (mut i, dir) = self.canonical_first_vertex();
+    let mut sum = turn_angle(
+        self.vertex((i + n_vertices - dir) % n_vertices), 
+        self.vertex(i), 
+        self.vertex((i + dir) % n_vertices)
+    );
 
-    compensation = s1.Angle(0)
-    for n-1 > 0 {
-    i += dir
-    angle= TurnAngle(self.Vertex(i - dir), self.Vertex(i), self.Vertex(i +dir))
-    oldSum= sum
-    angle += compensation
-    sum += angle
-    compensation = (oldSum - sum) + angle
-    n - -
+    let mut compensation = Angle(0.0);
+    let mut n = n_vertices - 1;
+    while n > 0 {
+        i += dir;
+        let angle = turn_angle(
+            self.vertex(i - dir), 
+            self.vertex(i), 
+            self.vertex(i + dir)
+        );
+        let old_sum = sum;
+        let adjusted_angle = angle + compensation;
+        sum += adjusted_angle;
+        compensation = (old_sum - sum) + adjusted_angle;
+        n -= 1;
     }
 
-    const maxCurvature = 2 * math.Pi - 4 * dblEpsilon
+    const MAX_CURVATURE: f64 = 2.0 * PI - 4.0 * DBL_EPSILON;
 
-    return math.Max( - maxCurvature, math.Min(maxCurvature, float64(dir) * float64(sum+compensation)))
+    f64::max(-MAX_CURVATURE, f64::min(MAX_CURVATURE, dir as f64 * (sum + compensation) as f64))
 }
 
-// turningAngleMaxError return the maximum error in TurningAngle. The value is not
-// constant; it depends on the loop.
-fn turningAngleMaxError(&mut self) -> f64 {
+/// turning_angle_max_error return the maximum error in turning_angle. The value is not
+/// constant; it depends on the loop.
+pub fn turning_angle_max_error(&self) -> f64 {
     // The maximum error can be bounded as follows:
     //   3.00 * dblEpsilon    for RobustCrossProd(b, a)
     //   3.00 * dblEpsilon    for RobustCrossProd(c, b)
@@ -856,13 +865,13 @@ fn turningAngleMaxError(&mut self) -> f64 {
     //   2.00 * dblEpsilon    for each addition in the Kahan summation
     //   ------------------
     //  11.25 * dblEpsilon
-    maxErrorPerVertex = 11.25 * dblEpsilon
-    return maxErrorPerVertex * float64(self.vertices).len()
+    let max_error_per_vertex = 11.25 * DBL_EPSILON;
+    max_error_per_vertex * self.vertices.len() as f64
 }
 
     /// is_hole reports whether this loop represents a hole in its containing polygon.
     pub fn is_hole(&self) -> bool { 
-        self.depth & 1 != 0 
+        (self.depth & 1) != 0 
     }
 
     /// sign returns -1 if this Loop represents a hole in its containing polygon, and +1 otherwise.
@@ -874,158 +883,176 @@ fn turningAngleMaxError(&mut self) -> f64 {
         }
     }
 
-// IsNormalized reports whether the loop area is at most 2*pi. Degenerate loops are
-// handled consistently with Sign, i.e., if a loop can be
-// expressed as the union of degenerate or nearly-degenerate CCW triangles,
-// then it will always be considered normalized.
-fn IsNormalized(&mut self) -> bool {
+/// is_normalized reports whether the loop area is at most 2*pi. Degenerate loops are
+/// handled consistently with sign, i.e., if a loop can be
+/// expressed as the union of degenerate or nearly-degenerate CCW triangles,
+/// then it will always be considered normalized.
+pub fn is_normalized(&self) -> bool {
     // Optimization: if the longitude span is less than 180 degrees, then the
     // loop covers less than half the sphere and is therefore normalized.
-    if self.bound.Lng.Length() < math.Pi {
-    return true
+    if self.bound.lng.length() < PI {
+        return true;
     }
 
     // We allow some error so that hemispheres are always considered normalized.
     // TODO(roberts): This is no longer required by the Polygon implementation,
     // so alternatively we could create the invariant that a loop is normalized
     // if and only if its complement is not normalized.
-    return self.TurningAngle() > = - self.turningAngleMaxError()
+    self.turning_angle() >= -self.turning_angle_max_error()
 }
 
-// Normalize inverts the loop if necessary so that the area enclosed by the loop
-// is at most 2*pi.
-fn  Normalize(&mut self) {
-    if ! self.IsNormalized() {
-        self.Invert()
+/// normalize inverts the loop if necessary so that the area enclosed by the loop
+/// is at most 2*pi.
+pub fn normalize(&mut self) {
+    if !self.is_normalized() {
+        self.invert();
     }
 }
 
-// Invert reverses the order of the loop vertices, effectively complementing the
-// region represented by the loop. For example, the loop ABCD (with edges
-// AB, BC, CD, DA) becomes the loop DCBA (with edges DC, CB, BA, AD).
-// Notice that the last edge is the same in both cases except that its
-// direction has been reversed.
-fn Invert(&mut self) {
-    self.index.Reset()
-    if self.isEmptyOrFull() {
-    if self.IsFull() {
-    self.vertices[0] = emptyLoopPoint
-    } else {
-    self.vertices[0] = fullLoopPoint
+/// invert reverses the order of the loop vertices, effectively complementing the
+/// region represented by the loop. For example, the loop ABCD (with edges
+/// AB, BC, CD, DA) becomes the loop DCBA (with edges DC, CB, BA, AD).
+/// Notice that the last edge is the same in both cases except that its
+/// direction has been reversed.
+pub fn invert(&mut self) {
+    if let Some(index) = &mut self.index {
+        index.reset();
     }
+    
+    if self.is_empty_or_full() {
+        if self.is_full() {
+            self.vertices[0] = EMPTY_LOOP_POINT.clone();
+        } else {
+            self.vertices[0] = FULL_LOOP_POINT.clone();
+        }
     } else {
-    // For non-special loops, reverse the slice of vertices.
-    for i= self.vertices.len()/ 2 - 1; i > = 0; i - - {
-    opp= self.vertices.len() - 1 - i
-    self.vertices[i], self.vertices[opp] = self.vertices[opp], self.vertices[i]
-    }
+        // For non-special loops, reverse the slice of vertices.
+        let len = self.vertices.len();
+        for i in 0..(len / 2) {
+            let opp = len - 1 - i;
+            self.vertices.swap(i, opp);
+        }
     }
 
     // origin_inside must be set correctly before building the ShapeIndex.
-    self.origin_inside = ! self.origin_inside
-    if self.bound.Lat.Lo > - math.Pi / 2 & & self.bound.Lat.Hi < math.Pi / 2 {
-    // The complement of this loop contains both poles.
-    self.bound = FullRect()
-    self.subregion_bound = self.bound
+    self.origin_inside = !self.origin_inside;
+    if self.bound.lat.lo > -PI / 2.0 && self.bound.lat.hi < PI / 2.0 {
+        // The complement of this loop contains both poles.
+        self.bound = Rect::full();
+        self.subregion_bound = self.bound.clone();
     } else {
-    self.initBound()
+        self.init_bound();
     }
-    self.index.Add(l)
+    
+    if let Some(index) = &mut self.index {
+        index.add(self);
+    }
 }
 
-// findVertex returns the index of the vertex at the given Point in the range
-// 1..numVertices, and a boolean indicating if a vertex was found.
-fn findVertex(&mut self,p: Point) -> (i64, bool) {
-    const notFound = 0
+/// find_vertex returns the index of the vertex at the given Point in the range
+/// 1..num_vertices, and a boolean indicating if a vertex was found.
+fn find_vertex(&self, p: Point) -> (i64, bool) {
+    const NOT_FOUND: i64 = 0;
     if self.vertices.len() < 10 {
-    // Exhaustive search for loops below a small threshold.
-    for i= 1; i < = self.vertices.len(); i + + {
-    if self.Vertex(i) == p {
-    return i, true
-    }
-    }
-    return notFound, false
-    }
-
-    it= self.index.Iterator()
-    if ! it.LocatePoint(p) {
-    return notFound, false
+        // Exhaustive search for loops below a small threshold.
+        for i in 1..=self.vertices.len() {
+            if self.vertex(i as i64) == p {
+                return (i as i64, true);
+            }
+        }
+        return (NOT_FOUND, false);
     }
 
-    aClipped= it.IndexCell().findByShapeID(0)
-    for i= aClipped.numEdges() - 1; i > = 0; i - - {
-    ai= aClipped.edges[i]
-    if self.Vertex(ai) == p {
-    if ai == 0 {
-    return self.vertices.len(), true
-    }
-    return ai, true
-    }
+    if let Some(index) = &self.index {
+        let it = index.iterator();
+        if !it.locate_point(p) {
+            return (NOT_FOUND, false);
+        }
 
-    if self.Vertex(ai + 1) == p {
-    return ai + 1, true
+        let a_clipped = it.index_cell().find_by_shape_id(0);
+        for i in (0..a_clipped.num_edges()).rev() {
+            let ai = a_clipped.edges[i];
+            if self.vertex(ai) == p {
+                if ai == 0 {
+                    return (self.vertices.len() as i64, true);
+                }
+                return (ai, true);
+            }
+
+            if self.vertex(ai + 1) == p {
+                return (ai + 1, true);
+            }
+        }
     }
-    }
-    return notFound, false
+    return (NOT_FOUND, false);
 }
 
-// ContainsNested reports whether the given loops is contained within this loop.
-// This fntion does not test for edge intersections. The two loops must meet
-// all of the Polygon requirements; for example this implies that their
-// boundaries may not cross or have any shared edges (although they may have
-// shared vertices).
-fn ContainsNested(&mut self, other: &Loop) -> bool {
-    if ! self.subregion_bound.Contains(other.bound) {
-    return false
+/// contains_nested reports whether the given loops is contained within this loop.
+/// This function does not test for edge intersections. The two loops must meet
+/// all of the Polygon requirements; for example this implies that their
+/// boundaries may not cross or have any shared edges (although they may have
+/// shared vertices).
+pub fn contains_nested(&self, other: &Loop) -> bool {
+    if !self.subregion_bound.contains(&other.bound) {
+        return false;
     }
 
-    // Special cases to handle either loop being empty or fulself.  Also bail out
+    // Special cases to handle either loop being empty or full.  Also bail out
     // when B has no vertices to avoid heap overflow on the vertex(1) call
     // below.  (This method is called during polygon initialization before the
-    // client has an opportunity to call IsValid().)
-    if self.isEmptyOrFull() | | other.NumVertices() < 2 {
-    return self.IsFull() | | other.IsEmpty()
+    // client has an opportunity to call is_valid().)
+    if self.is_empty_or_full() || other.num_vertices() < 2 {
+        return self.is_full() || other.is_empty();
     }
 
     // We are given that A and B do not share any edges, and that either one
     // loop contains the other or they do not intersect.
-    m, ok= self.findVertex(other.Vertex(1))
-    if ! ok {
-    // Since other.vertex(1) is not shared, we can check whether A contains it.
-    return self.ContainsPoint(other.Vertex(1))
+    let (m, ok) = self.find_vertex(other.vertex(1));
+    if !ok {
+        // Since other.vertex(1) is not shared, we can check whether A contains it.
+        return self.contains_point(other.vertex(1));
     }
 
     // Check whether the edge order around other.Vertex(1) is compatible with
     // A containing B.
-    return WedgeContains(self.Vertex(m - 1), self.Vertex(m), self.Vertex(m + 1), other.Vertex(0), other.Vertex(2))
+    wedge_contains(
+        self.vertex(m - 1), 
+        self.vertex(m), 
+        self.vertex(m + 1), 
+        other.vertex(0), 
+        other.vertex(2)
+    )
 }
 
-// surfaceIntegralFloat64 computes the oriented surface integral of some quantity f(x)
-// over the loop interior, given a fntion f(A,B,C) that returns the
-// corresponding integral over the spherical triangle ABC. Here "oriented
-// surface integral" means:
-//
-// (1) f(A,B,C) must be the integral of f if ABC is counterclockwise,
-//
-//	and the integral of -f if ABC is clockwise.
-//
-// (2) The result of this fntion is *either* the integral of f over the
-//
-//	loop interior, or the integral of (-f) over the loop exterior.
-//
-// Note that there are at least two common situations where it easy to work
-// around property (2) above:
-//
-//   - If the integral of f over the entire sphere is zero, then it doesn't
-//     matter which case is returned because they are always equaself.
-//
-//   - If f is non-negative, then it is easy to detect when the integral over
-//     the loop exterior has been returned, and the integral over the loop
-//     interior can be obtained by adding the integral of f over the entire
-//     unit sphere (a constant) to the result.
-//
-// Any changes to this method may need corresponding changes to surfaceIntegralPoint as welself.
-fn surfaceIntegralFloat64(&mut self,f fn(a: &Point, b: &Point, c: &Point) float64) -> f64 {
+/// surface_integral_float64 computes the oriented surface integral of some quantity f(x)
+/// over the loop interior, given a function f(A,B,C) that returns the
+/// corresponding integral over the spherical triangle ABC. Here "oriented
+/// surface integral" means:
+///
+/// (1) f(A,B,C) must be the integral of f if ABC is counterclockwise,
+///
+/// and the integral of -f if ABC is clockwise.
+///
+/// (2) The result of this function is *either* the integral of f over the
+///
+/// loop interior, or the integral of (-f) over the loop exterior.
+///
+/// Note that there are at least two common situations where it easy to work
+/// around property (2) above:
+///
+///   - If the integral of f over the entire sphere is zero, then it doesn't
+///     matter which case is returned because they are always equal.
+///
+///   - If f is non-negative, then it is easy to detect when the integral over
+///     the loop exterior has been returned, and the integral over the loop
+///     interior can be obtained by adding the integral of f over the entire
+///     unit sphere (a constant) to the result.
+///
+/// Any changes to this method may need corresponding changes to surface_integral_point as well.
+pub fn surface_integral_float64<F>(&self, f: F) -> f64 
+where 
+    F: Fn(&Point, &Point, &Point) -> f64
+{
     // We sum f over a collection T of oriented triangles, possibly
     // overlapping. Let the sign of a triangle be +1 if it is CCW and -1
     // otherwise, and let the sign of a point x be the sum of the signs of the
@@ -1054,99 +1081,102 @@ fn surfaceIntegralFloat64(&mut self,f fn(a: &Point, b: &Point, c: &Point) float6
 
     // The maximum length of an edge for it to be considered numerically stable.
     // The exact value is fairly arbitrary since it depends on the stability of
-    // the fntion f. The value below is quite conservative but could be
+    // the function f. The value below is quite conservative but could be
     // reduced further if desired.
-    const maxLength = math.Pi - 1e-5
+    const MAX_LENGTH: f64 = PI - 1e-5;
 
-    var sum float64
-    origin = self.Vertex(0)
-    for i = 1; i+1 < self.vertices.len(); i++ {
-    // Let V_i be vertex(i), let O be the current origin, and let length(A,B)
-    // be the length of edge (A,B). At the start of each loop iteration, the
-    // "leading edge" of the triangle fan is (O,V_i), and we want to extend
-    // the triangle fan so that the leading edge is (O,V_i+1).
-    //
-    // Invariants:
-    //  1. length(O,V_i) < maxLength for all (i > 1).
-    //  2. Either O == V_0, or O is approximately perpendicular to V_0.
-    //  3. "sum" is the oriented integral of f over the area defined by
-    //     (O, V_0, V_1, ..., V_i).
-    if self.Vertex(i + 1).Angle(origin.Vector) > maxLength {
-    // We are about to create an unstable edge, so choose a new origin O'
-    // for the triangle fan.
-    oldOrigin= origin
-    if origin == self.Vertex(0) {
-    // The following point is well-separated from V_i and V_0 (and
-    // therefore V_i+1 as well).
-    origin = Point{self.Vertex(0).PointCross(self.Vertex(i)).Normalize()}
-    } else if self.Vertex(i).Angle(self.Vertex(0).Vector) < maxLength {
-    // All edges of the triangle (O, V_0, V_i) are stable, so we can
-    // revert to using V_0 as the origin.
-    origin = self.Vertex(0)
-    } else {
-    // (O, V_i+1) and (V_0, V_i) are antipodal pairs, and O and V_0 are
-    // perpendicular. Therefore V_0.CrossProd(O) is approximately
-    // perpendicular to all of {O, V_0, V_i, V_i+1}, and we can choose
-    // this point O' as the new origin.
-    origin = Point{self.Vertex(0).Cross(oldOrigin.Vector)}
+    let mut sum = 0.0;
+    let mut origin = self.vertex(0);
+    for i in 1..self.vertices.len() as i64 - 1 {
+        // Let V_i be vertex(i), let O be the current origin, and let length(A,B)
+        // be the length of edge (A,B). At the start of each loop iteration, the
+        // "leading edge" of the triangle fan is (O,V_i), and we want to extend
+        // the triangle fan so that the leading edge is (O,V_i+1).
+        //
+        // Invariants:
+        //  1. length(O,V_i) < MAX_LENGTH for all (i > 1).
+        //  2. Either O == V_0, or O is approximately perpendicular to V_0.
+        //  3. "sum" is the oriented integral of f over the area defined by
+        //     (O, V_0, V_1, ..., V_i).
+        if self.vertex(i + 1).angle(&origin.0) > MAX_LENGTH {
+            // We are about to create an unstable edge, so choose a new origin O'
+            // for the triangle fan.
+            let old_origin = origin;
+            if origin == self.vertex(0) {
+                // The following point is well-separated from V_i and V_0 (and
+                // therefore V_i+1 as well).
+                origin = Point(self.vertex(0).point_cross(&self.vertex(i)).normalize());
+            } else if self.vertex(i).angle(&self.vertex(0).0) < MAX_LENGTH {
+                // All edges of the triangle (O, V_0, V_i) are stable, so we can
+                // revert to using V_0 as the origin.
+                origin = self.vertex(0);
+            } else {
+                // (O, V_i+1) and (V_0, V_i) are antipodal pairs, and O and V_0 are
+                // perpendicular. Therefore V_0.cross(O) is approximately
+                // perpendicular to all of {O, V_0, V_i, V_i+1}, and we can choose
+                // this point O' as the new origin.
+                origin = Point(self.vertex(0).cross(&old_origin.0));
 
-    // Advance the edge (V_0,O) to (V_0,O').
-    sum += f(self.Vertex(0), oldOrigin, origin)
-    }
-    // Advance the edge (O,V_i) to (O',V_i).
-    sum += f(oldOrigin, self.Vertex(i), origin)
-    }
-    // Advance the edge (O,V_i) to (O,V_i+1).
-    sum += f(origin, self.Vertex(i), self.Vertex(i + 1))
+                // Advance the edge (V_0,O) to (V_0,O').
+                sum += f(&self.vertex(0), &old_origin, &origin);
+            }
+            // Advance the edge (O,V_i) to (O',V_i).
+            sum += f(&old_origin, &self.vertex(i), &origin);
+        }
+        // Advance the edge (O,V_i) to (O,V_i+1).
+        sum += f(&origin, &self.vertex(i), &self.vertex(i + 1));
     }
     // If the origin is not V_0, we need to sum one more triangle.
-    if origin != self.Vertex(0) {
-    // Advance the edge (O,V_n-1) to (O,V_0).
-    sum += f(origin, self.Vertex(self.vertices) - 1), self.Vertex(0).len()
+    if origin != self.vertex(0) {
+        // Advance the edge (O,V_n-1) to (O,V_0).
+        sum += f(&origin, &self.vertex(self.vertices.len() as i64 - 1), &self.vertex(0));
     }
-    return sum
+    return sum;
 }
 
-// surfaceIntegralPoint mirrors the surfaceIntegralFloat64 method but over Points;
-// see that method for commentary. The C++ version uses a templated method.
-// Any changes to this method may need corresponding changes to surfaceIntegralFloat64 as welself.
-fn surfaceIntegralPoint(&mut self,f fn(a: &Point, b: &Point, c: &Point) Point)  -> Point {
-    const maxLength = math.Pi - 1e-5
-    var sum r3.Vector
+/// surface_integral_point mirrors the surface_integral_float64 method but over Points;
+/// see that method for commentary. The C++ version uses a templated method.
+/// Any changes to this method may need corresponding changes to surface_integral_float64 as well.
+pub fn surface_integral_point<F>(&self, f: F) -> Point 
+where 
+    F: Fn(&Point, &Point, &Point) -> Point
+{
+    const MAX_LENGTH: f64 = PI - 1e-5;
+    let mut sum = Vector { x: 0.0, y: 0.0, z: 0.0 };
 
-    origin = self.Vertex(0)
-    for i = 1; i+1 < self.vertices.len(); i++ {
-    if self.Vertex(i + 1).Angle(origin.Vector) > maxLength {
-    oldOrigin= origin
-    if origin == self.Vertex(0) {
-    origin = Point{self.Vertex(0).PointCross(self.Vertex(i)).Normalize()}
-    } else if self.Vertex(i).Angle(self.Vertex(0).Vector) < maxLength {
-    origin = self.Vertex(0)
-    } else {
-    origin = Point{self.Vertex(0).Cross(oldOrigin.Vector)}
-    sum = sum.Add(f(self.Vertex(0), oldOrigin, origin).Vector)
+    let mut origin = self.vertex(0);
+    for i in 1..self.vertices.len() as i64 - 1 {
+        if self.vertex(i + 1).angle(&origin.0) > MAX_LENGTH {
+            let old_origin = origin;
+            if origin == self.vertex(0) {
+                origin = Point(self.vertex(0).point_cross(&self.vertex(i)).normalize());
+            } else if self.vertex(i).angle(&self.vertex(0).0) < MAX_LENGTH {
+                origin = self.vertex(0);
+            } else {
+                origin = Point(self.vertex(0).cross(&old_origin.0));
+                sum = sum.add(f(&self.vertex(0), &old_origin, &origin).0);
+            }
+            sum = sum.add(f(&old_origin, &self.vertex(i), &origin).0);
+        }
+        sum = sum.add(f(&origin, &self.vertex(i), &self.vertex(i + 1)).0);
     }
-    sum = sum.Add(f(oldOrigin, self.Vertex(i), origin).Vector)
+    if origin != self.vertex(0) {
+        sum = sum.add(f(&origin, &self.vertex(self.vertices.len() as i64 - 1), &self.vertex(0)).0);
     }
-    sum = sum.Add(f(origin, self.Vertex(i), self.Vertex(i + 1)).Vector)
-    }
-    if origin != self.Vertex(0) {
-    sum = sum.Add(f(origin, self.Vertex(self.vertices)- 1), self.Vertex(0)).Vector.len()
-    }
-    return Point{sum}
+    Point(sum)
 }
 
-// Area returns the area of the loop interior, i.e. the region on the left side of
-// the loop. The return value is between 0 and 4*pi. (Note that the return
-// value is not affected by whether this loop is a "hole" or a "shell".)
-fn Area(&mut self) -> f64 {
+/// area returns the area of the loop interior, i.e. the region on the left side of
+/// the loop. The return value is between 0 and 4*pi. (Note that the return
+/// value is not affected by whether this loop is a "hole" or a "shell".)
+pub fn area(&self) -> f64 {
     // It is surprisingly difficult to compute the area of a loop robustly. The
     // main issues are (1) whether degenerate loops are considered to be CCW or
     // not (i.e., whether their area is close to 0 or 4*pi), and (2) computing
     // the areas of small loops with good relative accuracy.
     //
     // With respect to degeneracies, we would like Area to be consistent
-    // with ContainsPoint in that loops that contain many points
+    // with contains_point in that loops that contain many points
     // should have large areas, and loops that contain few points should have
     // small areas. For example, if a degenerate triangle is considered CCW
     // according to s2predicates Sign, then it will contain very few points and
@@ -1154,12 +1184,12 @@ fn Area(&mut self) -> f64 {
     // considered clockwise, then it will contain virtually all points and so
     // its area should be approximately 4*pi.
     //
-    // More precisely, let U be the set of Points for which IsUnitLength
+    // More precisely, let U be the set of Points for which is_unit_length
     // is true, let P(U) be the projection of those points onto the mathematical
     // unit sphere, and let V(P(U)) be the Voronoi diagram of the projected
     // points. Then for every loop x, we would like Area to approximately
     // equal the sum of the areas of the Voronoi regions of the points p for
-    // which x.ContainsPoint(p) is true.
+    // which x.contains_point(p) is true.
     //
     // The second issue is that we want to compute the area of small loops
     // accurately. This requires having good relative precision rather than
@@ -1179,14 +1209,14 @@ fn Area(&mut self) -> f64 {
     // Sign, then its turning angle will be approximately 2*pi.
     //
     // The disadvantage of the Gauss-Bonnet method is that its absolute error is
-    // about 2e-15 times the number of vertices (see turningAngleMaxError).
+    // about 2e-15 times the number of vertices (see turning_angle_max_error).
     // So, it cannot compute the area of small loops accurately.
     //
     // The second method is based on splitting the loop into triangles and
     // summing the area of each triangle. To avoid the difficulty and expense
     // of decomposing the loop into a union of non-overlapping triangles,
     // instead we compute a signed sum over triangles that may overlap (see the
-    // comments for surfaceIntegral). The advantage of this method
+    // comments for surface_integral). The advantage of this method
     // is that the area of each triangle can be computed with much better
     // relative accuracy (using l'Huilier's theorem). The disadvantage is that
     // the result is a signed area: CCW loops may yield a small positive value,
@@ -1200,15 +1230,15 @@ fn Area(&mut self) -> f64 {
     // is generally more accurate). We also estimate the maximum error in this
     // result. If the signed area is too close to zero (i.e., zero is within
     // the error bounds), then we double-check the sign of the result using the
-    // Gauss-Bonnet method. (In fact we just call IsNormalized, which is
+    // Gauss-Bonnet method. (In fact we just call is_normalized, which is
     // based on this method.) If the two methods disagree, we return either 0
-    // or 4*pi based on the result of IsNormalized. Otherwise we return the
+    // or 4*pi based on the result of is_normalized. Otherwise we return the
     // area that we computed originally.
-    if self.isEmptyOrFull() {
-    if self.ContainsOrigin() {
-    return 4 * math.Pi
-    }
-    return 0
+    if self.is_empty_or_full() {
+        if self.contains_origin() {
+            return 4.0 * PI;
+        }
+        return 0.0;
     }
     area = self.surfaceIntegralFloat64(SignedArea)
 
@@ -1221,47 +1251,60 @@ fn Area(&mut self) -> f64 {
     // every triangle.
     maxError = self.turningAngleMaxError()
 
-    // The signed area should be between approximately -4*pi and 4*pi.
-    if area < 0 {
-    // We have computed the negative of the area of the loop exterior.
-    area += 4 * math.Pi
-    }
+    let area = self.surface_integral_float64(signed_area);
 
-    if area > 4 * math.Pi {
-    area = 4 * math.Pi
+    // TODO(roberts): This error estimate is very approximate. There are two
+    // issues: (1) SignedArea needs some improvements to ensure that its error
+    // is actually never higher than GirardArea, and (2) although the number of
+    // triangles in the sum is typically N-2, in theory it could be as high as
+    // 2*N for pathological inputs. But in other respects this error bound is
+    // very conservative since it assumes that the maximum error is achieved on
+    // every triangle.
+    let max_error = self.turning_angle_max_error();
+
+    // The signed area should be between approximately -4*pi and 4*pi.
+    let mut area = if area < 0.0 {
+        // We have computed the negative of the area of the loop exterior.
+        area + 4.0 * PI
+    } else {
+        area
+    };
+
+    if area > 4.0 * PI {
+        area = 4.0 * PI;
     }
-    if area < 0 {
-    area = 0
+    if area < 0.0 {
+        area = 0.0;
     }
 
     // If the area is close enough to zero or 4*pi so that the loop orientation
     // is ambiguous, then we compute the loop orientation explicitly.
-    if area < maxError & & ! self.IsNormalized() {
-    return 4 * math.Pi
-    } else if area > (4 * math.Pi-maxError) & & self.IsNormalized() {
-    return 0
+    if area < max_error && !self.is_normalized() {
+        return 4.0 * PI;
+    } else if area > (4.0 * PI - max_error) && self.is_normalized() {
+        return 0.0;
     }
 
     return area
 }
 
-// Centroid returns the true centroid of the loop multiplied by the area of the
-// loop. The result is not unit length, so you may want to normalize it. Also
-// note that in general, the centroid may not be contained by the loop.
-//
-// We prescale by the loop area for two reasons: (1) it is cheaper to
-// compute this way, and (2) it makes it easier to compute the centroid of
-// more complicated shapes (by splitting them into disjoint regions and
-// adding their centroids).
-//
-// Note that the return value is not affected by whether this loop is a
-// "hole" or a "shell".
-fn Centroid(&mut self) -> Point {
-    // surfaceIntegralPoint() returns either the integral of position over loop
+/// centroid returns the true centroid of the loop multiplied by the area of the
+/// loop. The result is not unit length, so you may want to normalize it. Also
+/// note that in general, the centroid may not be contained by the loop.
+///
+/// We prescale by the loop area for two reasons: (1) it is cheaper to
+/// compute this way, and (2) it makes it easier to compute the centroid of
+/// more complicated shapes (by splitting them into disjoint regions and
+/// adding their centroids).
+///
+/// Note that the return value is not affected by whether this loop is a
+/// "hole" or a "shell".
+pub fn centroid(&self) -> Point {
+    // surface_integral_point() returns either the integral of position over loop
     // interior, or the negative of the integral of position over the loop
     // exterior. But these two values are the same (!), because the integral of
     // position over the entire sphere is (0, 0, 0).
-    return self.surfaceIntegralPoint(TrueCentroid)
+    self.surface_integral_point(true_centroid)
 }
 
 // Encode encodes the Loop.
@@ -1424,124 +1467,137 @@ fn Centroid(&mut self) -> Point {
 // }
 // 
 
-// containsNonCrossingBoundary reports whether given two loops whose boundaries
-// do not cross (see compareBoundary), if this loop contains the boundary of the
-// other loop. If reverse is true, the boundary of the other loop is reversed
-// first (which only affects the result when there are shared edges). This method
-// is cheaper than compareBoundary because it does not test for edge intersections.
-//
-// This fntion requires that neither loop is empty, and that if the other is full,
-// then reverse == false.
-fn containsNonCrossingBoundary(&mut self, other: &Loop, reverseOther: bool) -> bool {
+/// contains_non_crossing_boundary reports whether given two loops whose boundaries
+/// do not cross (see compare_boundary), if this loop contains the boundary of the
+/// other loop. If reverse is true, the boundary of the other loop is reversed
+/// first (which only affects the result when there are shared edges). This method
+/// is cheaper than compare_boundary because it does not test for edge intersections.
+///
+/// This function requires that neither loop is empty, and that if the other is full,
+/// then reverse == false.
+pub fn contains_non_crossing_boundary(&self, other: &Loop, reverse_other: bool) -> bool {
     // The bounds must intersect for containment.
-    if ! self.bound.Intersects(other.bound) {
-    return false
+    if !self.bound.intersects(&other.bound) {
+        return false;
     }
 
     // Full loops are handled as though the loop surrounded the entire sphere.
-    if self.IsFull() {
-    return true
+    if self.is_full() {
+        return true;
     }
-    if other.IsFull() {
-    return false
+    if other.is_full() {
+        return false;
     }
 
-    m, ok = self.findVertex(other.Vertex(0))
-    if ! ok {
-    // Since the other loops vertex 0 is not shared, we can check if this contains it.
-    return self.ContainsPoint(other.Vertex(0))
+    let (m, ok) = self.find_vertex(other.vertex(0));
+    if !ok {
+        // Since the other loops vertex 0 is not shared, we can check if this contains it.
+        return self.contains_point(other.vertex(0));
     }
     // Otherwise check whether the edge (b0, b1) is contained by this loop.
-    return wedgeContainsSemiwedge(self.Vertex(m-1), self.Vertex(m), self.Vertex(m+1),
-    other.Vertex(1), reverseOther)
-    }
-    }
+    wedge_contains_semiwedge(
+        &self.vertex(m-1), 
+        &self.vertex(m), 
+        &self.vertex(m+1),
+        &other.vertex(1), 
+        reverse_other
+    )
 }
-// crossingTarget is an enum representing the possible crossing target cases for relations.
-enum  crossingTarget {
-    crossingTargetDontCare,
-    crossingTargetDontCross,
-    crossingTargetCross
-}
-
-// loopRelation defines the interface for checking a type of relationship between two loops.
-// Some examples of relations are Contains, Intersects, or CompareBoundary.
-trait loopRelation {
-    // Optionally, aCrossingTarget and bCrossingTarget can specify an early-exit
-    // condition for the loop relation. If any point P is found such that
-    //
-    //   A.ContainsPoint(P) == aCrossingTarget() &&
-    //   B.ContainsPoint(P) == bCrossingTarget()
-    //
-    // then the loop relation is assumed to be the same as if a pair of crossing
-    // edges were found. For example, the ContainsPoint relation has
-    //
-    //   aCrossingTarget() == crossingTargetDontCross
-    //   bCrossingTarget() == crossingTargetCross
-    //
-    // because if A.ContainsPoint(P) == false and B.ContainsPoint(P) == true
-    // for any point P, then it is equivalent to finding an edge crossing (i.e.,
-    // since Contains returns false in both cases).
-    //
-    // Loop relations that do not have an early-exit condition of this form
-    // should return crossingTargetDontCare for both crossing targets.
-
-    // aCrossingTarget reports whether loop A crosses the target point with
-    // the given relation type.
-    aCrossingTarget() -> crossingTarget;
-    // bCrossingTarget reports whether loop B crosses the target point with
-    // the given relation type.
-    bCrossingTarget() -> crossingTarget;
-
-    // wedgesCross reports if a shared vertex ab1 and the two associated wedges
-    // (a0, ab1, b2) and (b0, ab1, b2) are equivalent to an edge crossing.
-    // The loop relation is also allowed to maintain its own internal state, and
-    // can return true if it observes any sequence of wedges that are equivalent
-    // to an edge crossing.
-    wedgesCross(a0, ab1, a2, b0, b2 Point) -> bool;
+/// CrossingTarget is an enum representing the possible crossing target cases for relations.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CrossingTarget {
+    DontCare,
+    DontCross,
+    Cross,
 }
 
-// loopCrosser is a helper type for determining whether two loops cross.
-// It is instantiated twice for each pair of loops to be tested, once for the
-// pair (A,B) and once for the pair (B,A), in order to be able to process
-// edges in either loop nesting order.
-struct loopCrosser {
-    a: &Loop ,
-    b:            &Loop,
-    relation:        loopRelation,
-    swapped:         bool,
-    aCrossingTarget: crossingTarget,
-    bCrossingTarget: crossingTarget,
+/// LoopRelation defines the interface for checking a type of relationship between two loops.
+/// Some examples of relations are Contains, Intersects, or CompareBoundary.
+pub trait LoopRelation {
+    /// Optionally, a_crossing_target and b_crossing_target can specify an early-exit
+    /// condition for the loop relation. If any point P is found such that
+    ///
+    ///   A.contains_point(P) == a_crossing_target() &&
+    ///   B.contains_point(P) == b_crossing_target()
+    ///
+    /// then the loop relation is assumed to be the same as if a pair of crossing
+    /// edges were found. For example, the contains_point relation has
+    ///
+    ///   a_crossing_target() == CrossingTarget::DontCross
+    ///   b_crossing_target() == CrossingTarget::Cross
+    ///
+    /// because if A.contains_point(P) == false and B.contains_point(P) == true
+    /// for any point P, then it is equivalent to finding an edge crossing (i.e.,
+    /// since Contains returns false in both cases).
+    ///
+    /// Loop relations that do not have an early-exit condition of this form
+    /// should return CrossingTarget::DontCare for both crossing targets.
 
-    // state maintained by startEdge and edgeCrossesCelself.
-    crosser:    *EdgeCrosser
+    /// a_crossing_target reports whether loop A crosses the target point with
+    /// the given relation type.
+    fn a_crossing_target(&self) -> CrossingTarget;
+    
+    /// b_crossing_target reports whether loop B crosses the target point with
+    /// the given relation type.
+    fn b_crossing_target(&self) -> CrossingTarget;
+
+    /// wedges_cross reports if a shared vertex ab1 and the two associated wedges
+    /// (a0, ab1, b2) and (b0, ab1, b2) are equivalent to an edge crossing.
+    /// The loop relation is also allowed to maintain its own internal state, and
+    /// can return true if it observes any sequence of wedges that are equivalent
+    /// to an edge crossing.
+    fn wedges_cross(&mut self, a0: &Point, ab1: &Point, a2: &Point, b0: &Point, b2: &Point) -> bool;
+}
+
+/// LoopCrosser is a helper type for determining whether two loops cross.
+/// It is instantiated twice for each pair of loops to be tested, once for the
+/// pair (A,B) and once for the pair (B,A), in order to be able to process
+/// edges in either loop nesting order.
+pub struct LoopCrosser<'a> {
+    a: &'a Loop,
+    b: &'a Loop,
+    relation: &'a mut dyn LoopRelation,
+    swapped: bool,
+    a_crossing_target: CrossingTarget,
+    b_crossing_target: CrossingTarget,
+
+    // state maintained by start_edge and edge_crosses_cell.
+    crosser: Option<EdgeCrosser>,
     aj: i64,
-    bjPrev: i64,
+    bj_prev: i64,
 
     // temporary data declared here to avoid repeated memory allocations.
-    bQuery: CrossingEdgeQuery,
-    bCells: Vec<ShapeIndexCell>
+    b_query: CrossingEdgeQuery,
+    b_cells: Vec<ShapeIndexCell>,
 }
-impl loopCrosser {
-    // newLoopCrosser creates a loopCrosser from the given values. If swapped is true,
-    // the loops A and B have been swapped. This affects how arguments are passed to
-    // the given loop relation, since for example A.Contains(B) is not the same as
-    // B.Contains(A).
-    fn newLoopCrosser(a: &Loop, b: &Loop, relation: loopRelation, swapped: bool) -> loopCrosser {
-        l = &loopCrosser {
-            a: a,
-            b: b,
-            relation: relation,
-            swapped: swapped,
-            aCrossingTarget: relation.aCrossingTarget(),
-            bCrossingTarget: relation.bCrossingTarget(),
-            bQuery: NewCrossingEdgeQuery(b.index),
-        }
+impl<'a> LoopCrosser<'a> {
+    /// new_loop_crosser creates a LoopCrosser from the given values. If swapped is true,
+    /// the loops A and B have been swapped. This affects how arguments are passed to
+    /// the given loop relation, since for example A.contains(B) is not the same as
+    /// B.contains(A).
+    pub fn new(a: &'a Loop, b: &'a Loop, relation: &'a mut dyn LoopRelation, swapped: bool) -> Self {
+        let a_crossing_target = relation.a_crossing_target();
+        let b_crossing_target = relation.b_crossing_target();
+        
+        let mut crosser = LoopCrosser {
+            a,
+            b,
+            relation,
+            swapped,
+            a_crossing_target,
+            b_crossing_target,
+            crosser: None,
+            aj: 0,
+            bj_prev: -2,
+            b_query: CrossingEdgeQuery::new(b.index.as_ref().unwrap()),
+            b_cells: Vec::new(),
+        };
+        
         if swapped {
-            self.aCrossingTarget, self.bCrossingTarget = self.bCrossingTarget, self.aCrossingTarget
+            std::mem::swap(&mut crosser.a_crossing_target, &mut crosser.b_crossing_target);
         }
 
-        return l
+        crosser
     }
 
     // startEdge sets the crossers state for checking the given edge of loop A.
@@ -1848,16 +1904,16 @@ impl compareBoundaryRelation {
         return c.containsEdge & & c.excludesEdge
     }
 }
-// wedgeContainsSemiwedge reports whether the wedge (a0, ab1, a2) contains the
-// "semiwedge" defined as any non-empty open set of rays immediately CCW from
-// the edge (ab1, b2). If reverse is true, then substitute clockwise for CCW;
-// this simulates what would happen if the direction of the other loop was reversed.
-fn wedgeContainsSemiwedge(a0: &Point, ab1: &Point, a2: &Point, b2: &Point, reverse: bool) -> bool {
-    if b2 == a0 | | b2 == a2 {
-    // We have a shared or reversed edge.
-    return (b2 == a0) == reverse
+/// wedge_contains_semiwedge reports whether the wedge (a0, ab1, a2) contains the
+/// "semiwedge" defined as any non-empty open set of rays immediately CCW from
+/// the edge (ab1, b2). If reverse is true, then substitute clockwise for CCW;
+/// this simulates what would happen if the direction of the other loop was reversed.
+pub fn wedge_contains_semiwedge(a0: &Point, ab1: &Point, a2: &Point, b2: &Point, reverse: bool) -> bool {
+    if b2 == a0 || b2 == a2 {
+        // We have a shared or reversed edge.
+        return (b2 == a0) == reverse;
     }
-    OrderedCCW(a0, a2, b2, ab1)
+    ordered_ccw(a0, a2, b2, ab1)
 }
 
 // TODO(roberts): Differences from the C++ version:
