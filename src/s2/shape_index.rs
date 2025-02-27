@@ -361,7 +361,6 @@ impl<'a> ShapeIndexIterator<'a> {
     }
 }
 
-Now let's implement the Tracker struct, which keeps track of which shapes in a given set contain a particular point:
 
 // tracker keeps track of which shapes in a given set contain a particular point
 // (the focus). It provides an efficient way to move the focus from one point
