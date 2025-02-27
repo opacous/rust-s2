@@ -56,7 +56,7 @@ use std::f64::consts::PI;
 /// or convert to discrete E5/E6/E7 values first.
 #[derive(Clone, Copy, Default, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct Angle(f64);
+pub struct Angle(pub f64);
 #[derive(Clone, Copy, Default, PartialEq, PartialOrd, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Rad(pub f64);

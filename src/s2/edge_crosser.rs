@@ -148,6 +148,7 @@ impl EdgeCrosser {
         }
         self.crossingSign(d, bda)
     }
+    
 
     // EdgeOrVertexChainCrossing is like EdgeOrVertexCrossing, but uses the last vertex
     // passed to one of the crossing methods (or RestartAt) as the first vertex of the current edgself.

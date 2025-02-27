@@ -19,9 +19,12 @@ pub mod predicates;
 
 pub mod shape;
 
+mod loops;
+
 mod edge_crosser;
 mod edge_crossings;
 // mod loops;
 #[cfg(test)]
 mod random;
 mod edge_clipping;
+mod shape_index;

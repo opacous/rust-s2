@@ -357,6 +357,7 @@ mod tests {
     }
 
     fn test_approx_eq(i1: &Interval, i2: &Interval, expected: bool) {
+        println!("Test: approx_eq({:?}, {:?}) = {}", i1, i2, expected);
         assert_eq!(expected, i1.approx_eq(&i2));
     }
 

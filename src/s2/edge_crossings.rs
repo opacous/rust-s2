@@ -447,9 +447,9 @@ pub fn AngleContainsVertex(a: &Point, b: &Point, c: &Point) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::s1::angle::Angle;
-    use crate::r3::vector::Vector;
     use crate::consts::DBL_EPSILON;
+    use crate::r3::vector::Vector;
+    use crate::s1::angle::Angle;
 
     // Helper function to create a Point from coordinates
     fn point_from_coords(x: f64, y: f64, z: f64) -> Point {
@@ -482,11 +482,17 @@ mod tests {
         // the direction AB with the vector AX, where both vectors are treated as
         // Euclidean (not spherical).
 
-        println!("Computing distance from {:?} to segment [{:?}, {:?}]", x, a, b);
-        
+        println!(
+            "Computing distance from {:?} to segment [{:?}, {:?}]",
+            x, a, b
+        );
+
         if a == b {
             let dist = x.distance(a);
-            println!("Degenerate segment, returning distance to endpoint: {}", dist.0);
+            println!(
+                "Degenerate segment, returning distance to endpoint: {}",
+                dist.0
+            );
             return dist;
         }
 
@@ -494,7 +500,7 @@ mod tests {
         let ax = x.0.sub(a.0);
         let ab_norm2 = ab.norm2();
         let ax_dot_ab = ax.dot(&ab);
-        
+
         println!("ab_norm2: {}", ab_norm2);
         println!("ax_dot_ab: {}", ax_dot_ab);
 
@@ -514,7 +520,7 @@ mod tests {
         // For numerical stability, we need to be careful with the normalization step
         // when dealing with points that are extremely close to each other.
         let p = a.0.add(ab.mul(ax_dot_ab / ab_norm2));
-        
+
         // Check if p is already very close to a unit vector
         let p_norm = p.norm();
         let normalized_p = if (p_norm - 1.0).abs() < DBL_EPSILON {
@@ -523,28 +529,28 @@ mod tests {
         } else {
             p.normalize()
         };
-        
+
         println!("Projection point before normalization: {:?}", p);
         println!("Projection point after normalization: {:?}", normalized_p);
-        
+
         // For very small distances, we need to be careful with floating point precision
         // First check if the points are extremely close
-        let direct_dist = x.0.sub(&normalized_p).norm();
+        let direct_dist = x.0.sub(normalized_p).norm();
         if direct_dist < DBL_EPSILON {
             println!("Points are extremely close, returning minimal distance");
             return Angle(0.0);
         }
-        
+
         let dist = x.distance(&Point(normalized_p));
         println!("Distance to projection: {}", dist.0);
-        return dist
+        return dist;
     }
 
     // Returns a random orthonormal frame (three orthogonal unit-length vectors).
     fn random_frame() -> [Point; 3] {
         use rand::Rng;
         let mut rng = rand::thread_rng();
-        
+
         // Generate a random point on the unit sphere.
         let dir = loop {
             let x = rng.gen_range(-1.0..1.0);
@@ -559,12 +565,12 @@ mod tests {
 
         // Now choose a random orthogonal point.
         let ortho = dir.ortho();
-        
+
         // Create a right-handed coordinate system.
         let third = Point(dir.0.cross(&ortho.0));
-        
+
         let frame = [dir, ortho, third];
-        
+
         println!("Random frame:");
         println!("  f[0] (p): {:?}, norm: {}", frame[0], frame[0].0.norm());
         println!("  f[1] (d1): {:?}, norm: {}", frame[1], frame[1].0.norm());
@@ -573,7 +579,7 @@ mod tests {
         println!("    f[0]·f[1]: {}", frame[0].0.dot(&frame[1].0));
         println!("    f[0]·f[2]: {}", frame[0].0.dot(&frame[2].0));
         println!("    f[1]·f[2]: {}", frame[1].0.dot(&frame[2].0));
-        
+
         frame
     }
 
@@ -591,7 +597,11 @@ mod tests {
 
     // Returns the maximum of two angles.
     fn max_angle(a: Angle, b: Angle) -> Angle {
-        if a > b { a } else { b }
+        if a > b {
+            a
+        } else {
+            b
+        }
     }
 
     #[test]
@@ -601,16 +611,31 @@ mod tests {
         let ref_b = b.referenceDir();
 
         // Degenerate angle ABA.
-        assert!(!AngleContainsVertex(&a, &b, &a), 
-                "AngleContainsVertex({:?}, {:?}, {:?}) = true, want false", a, b, a);
+        assert!(
+            !AngleContainsVertex(&a, &b, &a),
+            "AngleContainsVertex({:?}, {:?}, {:?}) = true, want false",
+            a,
+            b,
+            a
+        );
 
         // An angle where A == referenceDir(B).
-        assert!(AngleContainsVertex(&ref_b, &b, &a), 
-                "AngleContainsVertex({:?}, {:?}, {:?}) = false, want true", ref_b, b, a);
+        assert!(
+            AngleContainsVertex(&ref_b, &b, &a),
+            "AngleContainsVertex({:?}, {:?}, {:?}) = false, want true",
+            ref_b,
+            b,
+            a
+        );
 
         // An angle where C == referenceDir(B).
-        assert!(!AngleContainsVertex(&a, &b, &ref_b), 
-                "AngleContainsVertex({:?}, {:?}, {:?}) = true, want false", a, b, ref_b);
+        assert!(
+            !AngleContainsVertex(&a, &b, &ref_b),
+            "AngleContainsVertex({:?}, {:?}, {:?}) = true, want false",
+            a,
+            b,
+            ref_b
+        );
 
         // TODO: Add test for polygon tiling around a vertex once we have the RegularLoop implementation
     }
@@ -621,13 +646,13 @@ mod tests {
         // measure the distance from the actual intersection point "x" to the
         // exact intersection point and also to the edges.
         let distance_abs_error = Angle(3.0 * DBL_EPSILON);
-        
+
         let mut max_point_dist = Angle(0.0);
         let mut max_edge_dist = Angle(0.0);
-        
+
         // Reduce iterations for faster tests
         let iterations = if cfg!(debug_assertions) { 100 } else { 5000 };
-        
+
         for _ in 0..iterations {
             // We construct two edges AB and CD that intersect near "p". The angle
             // between AB and CD (expressed as a slope) is chosen randomly between
@@ -648,30 +673,30 @@ mod tests {
             let slope = 1e-15 * (1e30_f64).powf(random_float64());
             println!("Slope used: {}", slope);
             d2 = Point(d1.0.add(d2.0.mul(slope)).normalize());
-            
+
             // Find a pair of segments that cross.
             let (a, b, c, d) = loop {
                 let ab_len = (1e-15_f64).powf(random_float64());
                 let cd_len = (1e-15_f64).powf(random_float64());
-                
+
                 let mut a_fraction = (1e-5_f64).powf(random_float64());
                 if one_in(2) {
                     a_fraction = 1.0 - a_fraction;
                 }
-                
+
                 let mut c_fraction = (1e-5_f64).powf(random_float64());
                 if one_in(2) {
                     c_fraction = 1.0 - c_fraction;
                 }
-                
+
                 println!("ab_len: {}, cd_len: {}", ab_len, cd_len);
                 println!("a_fraction: {}, c_fraction: {}", a_fraction, c_fraction);
-                
+
                 let a = Point(p.0.sub(d1.0.mul(a_fraction * ab_len)).normalize());
                 let b = Point(p.0.add(d1.0.mul((1.0 - a_fraction) * ab_len)).normalize());
                 let c = Point(p.0.sub(d2.0.mul(c_fraction * cd_len)).normalize());
                 let d = Point(p.0.add(d2.0.mul((1.0 - c_fraction) * cd_len)).normalize());
-                
+
                 let mut crosser = EdgeCrosser::new(&a, &b);
                 if crosser.CrossingSign(c, d) == Crossing::Cross {
                     println!("Found crossing segments:");
@@ -691,62 +716,107 @@ mod tests {
             println!("  p to b distance: {}", p.distance(&b).0);
             println!("  |a-b|: {}", a.0.sub(b.0).norm());
             println!("  Computed dist_ab: {}", dist_ab.0);
-            
+
             let want_dist = Angle(1.5 * DBL_EPSILON) + distance_abs_error;
             println!("  Want dist: {}", want_dist.0);
-            
-            assert!(dist_ab <= want_dist, 
-                    "DistanceFromSegment({:?}, {:?}, {:?}) = {:.32}, want <= {:.32}",
-                    p, a, b, dist_ab.0, want_dist.0);
-            
+
+            assert!(
+                dist_ab <= want_dist,
+                "DistanceFromSegment({:?}, {:?}, {:?}) = {:.32}, want <= {:.32}",
+                p,
+                a,
+                b,
+                dist_ab.0,
+                want_dist.0
+            );
+
             let dist_cd = distance_from_segment(&p, &c, &d);
-            assert!(dist_cd <= want_dist, 
-                    "DistanceFromSegment({:?}, {:?}, {:?}) = {:.32}, want <= {:.32}",
-                    p, c, d, dist_cd.0, want_dist.0);
+            assert!(
+                dist_cd <= want_dist,
+                "DistanceFromSegment({:?}, {:?}, {:?}) = {:.32}, want <= {:.32}",
+                p,
+                c,
+                d,
+                dist_cd.0,
+                want_dist.0
+            );
 
             // Verify that the expected intersection point is close to both edges and
             // also close to the original point P. (It might not be very close to P
             // if the angle between the edges is very small.)
             let expected = test_intersection_exact(&a, &b, &c, &d);
-            
+
             let dist_expected_ab = distance_from_segment(&expected, &a, &b);
             let want_dist_expected = Angle(3.0 * DBL_EPSILON) + distance_abs_error;
-            assert!(dist_expected_ab <= want_dist_expected, 
-                    "DistanceFromSegment({:?}, {:?}, {:?}) = {:?}, want <= {:?}", 
-                    expected, a, b, dist_expected_ab, want_dist_expected);
-            
+            assert!(
+                dist_expected_ab <= want_dist_expected,
+                "DistanceFromSegment({:?}, {:?}, {:?}) = {:.32}, want <= {:.32}",
+                expected,
+                a,
+                b,
+                dist_expected_ab.0,
+                want_dist_expected.0
+            );
+
             let dist_expected_cd = distance_from_segment(&expected, &c, &d);
-            assert!(dist_expected_cd <= want_dist_expected, 
-                    "DistanceFromSegment({:?}, {:?}, {:?}) = {:?}, want <= {:?}", 
-                    expected, c, d, dist_expected_cd, want_dist_expected);
-            
+            assert!(
+                dist_expected_cd <= want_dist_expected,
+                "DistanceFromSegment({:?}, {:?}, {:?}) = {:.32}, want <= {:.32}",
+                expected,
+                c,
+                d,
+                dist_expected_cd.0,
+                want_dist_expected.0
+            );
+
             let dist_expected_p = expected.distance(&p);
-            let want_dist_p = Angle(3.0 * DBL_EPSILON / slope) +
-                              Angle(INTERSECTION_ERROR);
-            assert!(dist_expected_p <= want_dist_p, 
-                    "{:?}.Distance({:?}) = {:?}, want <= {:?}", 
-                    expected, p, dist_expected_p, want_dist_p);
+            let want_dist_p = Angle(3.0 * DBL_EPSILON / slope) + Angle(INTERSECTION_ERROR);
+            assert!(
+                dist_expected_p <= want_dist_p,
+                "{:?}.Distance({:?}) = {:.32}, want <= {:.32}",
+                expected,
+                p,
+                dist_expected_p.0,
+                want_dist_p.0
+            );
 
             // Now we actually test the Intersection() method.
             let actual = Intersection(&a, &b, &c, &d);
             let dist_ab = distance_from_segment(&actual, &a, &b);
             let dist_cd = distance_from_segment(&actual, &c, &d);
             let point_dist = expected.distance(&actual);
-            
+
             let want_dist_intersection = Angle(INTERSECTION_ERROR) + distance_abs_error;
-            assert!(dist_ab <= want_dist_intersection, 
-                    "DistanceFromSegment({:?}, {:?}, {:?}) = {:?}, want <= {:?}", 
-                    actual, a, b, dist_ab, want_dist_intersection);
-            
-            assert!(dist_cd <= want_dist_intersection, 
-                    "DistanceFromSegment({:?}, {:?}, {:?}) = {:?}, want <= {:?}", 
-                    actual, c, d, dist_cd, want_dist_intersection);
-            
+            assert!(
+                dist_ab <= want_dist_intersection,
+                "DistanceFromSegment({:?}, {:?}, {:?}) = {:.32}, want <= {:.32}",
+                actual,
+                a,
+                b,
+                dist_ab.0,
+                want_dist_intersection.0
+            );
+
+            assert!(
+                dist_cd <= want_dist_intersection,
+                "DistanceFromSegment({:?}, {:?}, {:?}) = {:.32}, want <= {:.32}",
+                actual,
+                c,
+                d,
+                dist_cd.0,
+                want_dist_intersection.0
+            );
+
             let want_point_dist = Angle(INTERSECTION_ERROR);
-            assert!(point_dist <= want_point_dist, 
-                    "{:?}.Distance({:?}) = {:?}, want <= {:?}", 
-                    expected, actual, point_dist, want_point_dist);
-            
+            assert!(
+                point_dist <= want_point_dist,
+                "{:?}.Distance({:?}) = {:.32}, want <= {:.32}",
+                expected,
+                actual,
+                point_dist.0,
+                want_point_dist.0
+            );
+
             max_edge_dist = max_angle(max_edge_dist, max_angle(dist_ab, dist_cd));
             max_point_dist = max_angle(max_point_dist, point_dist);
         }

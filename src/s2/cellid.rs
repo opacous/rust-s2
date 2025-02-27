@@ -84,6 +84,18 @@ impl std::fmt::Display for CellID {
 }
 
 impl CellID {
+    // SentinelCellID is an invalid cell ID guaranteed to be larger than any
+    // valid cell ID. It is used primarily by ShapeIndex. The value is also used
+    // by some S2 types when encoding data.
+    // Note that the sentinel's RangeMin == RangeMax == itself.
+    pub fn sentinel() -> Self {
+        CellID(u64::MAX)
+    }
+
+    pub fn center_point(&self) -> Point {
+        self.raw_point().normalize().into()
+    }
+
     /// from_pos_level returns a cell given its face in the range
     /// [0,5], the 61-bit Hilbert curve position pos within that face, and
     /// the level in the range [0,maxLevel]. The position in the cell ID

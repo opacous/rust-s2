@@ -17,6 +17,7 @@ use std::cmp::*;
 // Edge represents a geodesic edge consisting of two vertices. Zero-length edges are
 // allowed, and can be used to represent points.
 
+#[derive(Clone, Debug)]
 pub struct Edge {
     pub v0: Point,
     pub v1: Point,
