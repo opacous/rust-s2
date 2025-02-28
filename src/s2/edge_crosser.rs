@@ -15,7 +15,7 @@
 use crate::consts::DBL_EPSILON;
 use crate::point::Point;
 use crate::predicates::*;
-use crate::s2::edge_crossings::{Crossing, VertexCrossing};
+use crate::s2::edge_crossings::{Crossing, vertex_crossing};
 
 // EdgeCrosser allows edges to be efficiently tested for intersection with a
 // given fixed edge AB. It is especially efficient when testing for
@@ -33,6 +33,7 @@ use crate::s2::edge_crossings::{Crossing, VertexCrossing};
 //		}
 //		return count
 //	}
+#[derive(Copy, Clone, Debug)]
 pub struct EdgeCrosser {
     a: Point,
     b: Point,
@@ -81,12 +82,12 @@ impl EdgeCrosser {
     //
     // Note that if you want to check an edge against a chain of other edges,
     // it is slightly more efficient to use the single-argument version
-    // ChainCrossingSign below.
-    pub fn CrossingSign(&mut self, c: Point, d: Point) -> Crossing {
+    // chain_cross_sign below.
+    pub fn crossing_sign(&mut self, c: Point, d: Point) -> Crossing {
         if c != self.c {
-            self.RestartAt(c)
+            self.restart_at(c)
         }
-        self.ChainCrossingSign(d)
+        self.chain_crossing_sign(d)
     }
 
     // EdgeOrVertexCrossing reports whether if CrossingSign(c, d) > 0, or AB and
@@ -98,11 +99,11 @@ impl EdgeCrosser {
     // are designed so that point containment tests can be implemented simply
     // by counting edge crossings. Similarly, determining whether one edge
     // chain crosses another edge chain can be implemented by counting.
-    pub fn EdgeOrVertexCrossing(&mut self, c: Point, d: Point) -> bool {
+    pub fn edge_or_vertex_crossing(&mut self, c: Point, d: Point) -> bool {
         if c != self.c {
-            self.RestartAt(c)
+            self.restart_at(c)
         }
-        self.EdgeOrVertexChainCrossing(d)
+        self.edge_or_vertex_chain_crossing(d)
     }
 
     // NewChainEdgeCrosser is a convenience constructor that uses AB as the fixed edge,
@@ -112,23 +113,23 @@ impl EdgeCrosser {
     // squeeze out every last drop of performancself. Essentially all you are saving is a test
     // whether the first vertex of the current edge is the same as the second vertex of the
     // previous edgself.
-    pub fn NewChainEdgeCrosser(a: &Point, b: &Point, c: &Point) -> EdgeCrosser {
+    pub fn new_chain_edge_crosser(a: &Point, b: &Point, c: &Point) -> EdgeCrosser {
         let mut e = EdgeCrosser::new(a, b);
-        e.RestartAt(*c);
+        e.restart_at(*c);
         e
     }
 
     // RestartAt sets the current point of the edge crosser to be c.
     // Call this method when your chain 'jumps' to a new placself.
     // The argument must point to a value that persists until the next call.
-    pub fn RestartAt(&mut self, c: Point) {
+    pub fn restart_at(&mut self, c: Point) {
         self.c = c;
         self.acb = -triage_sign(&self.a, &self.b, &self.c);
     }
 
-    // ChainCrossingSign is like CrossingSign, but uses the last vertex passed to one of
-    // the crossing methods (or RestartAt) as the first vertex of the current edgself.
-    pub fn ChainCrossingSign(&mut self, d: Point) -> Crossing {
+    // chain_cross_sign is like CrossingSign, but uses the last vertex passed to one of
+    // the crossing methods (chain_crossing_or RestartAt) as the first vertex of the current edgself.
+    pub fn chain_crossing_sign(&mut self, d: Point) -> Crossing {
         // For there to be an edge crossing, the triangles ACB, CBD, BDA, DAC must
         // all be oriented the same way (CW or CCW). We keep the orientation of ACB
         // as part of our state. When each new point D arrives, we compute the
@@ -148,17 +149,17 @@ impl EdgeCrosser {
         }
         self.crossingSign(d, bda)
     }
-    
 
-    // EdgeOrVertexChainCrossing is like EdgeOrVertexCrossing, but uses the last vertex
+
+    // edge_or_vertex_chain_crossing is like EdgeOrVertexCrossing, but uses the last vertex
     // passed to one of the crossing methods (or RestartAt) as the first vertex of the current edgself.
-    pub fn EdgeOrVertexChainCrossing(&mut self, d: Point) -> bool {
-        // We need to copy self.c since it is clobbered by ChainCrossingSign.
+    pub fn edge_or_vertex_chain_crossing(&mut self, d: Point) -> bool {
+        // We need to copy self.c since it is clobbered by chain_cross_sign.
         let c = self.c;
-        match self.ChainCrossingSign(d) {
+        match self.chain_crossing_sign(d) {
             Crossing::DoNotCross => false,
             Crossing::Cross => true,
-            Crossing::Maybe => VertexCrossing(&self.a, &self.b, &c, &d),
+            Crossing::Maybe => vertex_crossing(&self.a, &self.b, &c, &d),
         }
     }
 
@@ -427,53 +428,53 @@ mod tests {
 
         let input = format!("{}: a: {:?}, b: {:?}, c: {:?}, d: {:?}", msg, a, b, c, d);
 
-        let mut crosser = EdgeCrosser::NewChainEdgeCrosser(&a, &b, &c);
+        let mut crosser = EdgeCrosser::new_chain_edge_crosser(&a, &b, &c);
         assert_eq!(
-            crosser.ChainCrossingSign(d),
+            crosser.chain_crossing_sign(d),
             robust,
-            "{}, ChainCrossingSign(d)",
+            "{}, chain_cross_sign(d)",
             input
         );
         assert_eq!(
-            crosser.ChainCrossingSign(c),
+            crosser.chain_crossing_sign(c),
             robust,
-            "{}, ChainCrossingSign(c)",
+            "{}, chain_cross_sign(c)",
             input
         );
         assert_eq!(
-            crosser.CrossingSign(d, c),
+            crosser.crossing_sign(d, c),
             robust,
             "{}, CrossingSign(d, c)",
             input
         );
         assert_eq!(
-            crosser.CrossingSign(c, d),
+            crosser.crossing_sign(c, d),
             robust,
             "{}, CrossingSign(c, d)",
             input
         );
 
-        crosser.RestartAt(c);
+        crosser.restart_at(c);
         assert_eq!(
-            crosser.EdgeOrVertexChainCrossing(d),
+            crosser.edge_or_vertex_chain_crossing(d),
             edge_or_vertex,
-            "{}, EdgeOrVertexChainCrossing(d)",
+            "{}, edge_or_vertex_chain_crossing(d)",
             input
         );
         assert_eq!(
-            crosser.EdgeOrVertexChainCrossing(c),
+            crosser.edge_or_vertex_chain_crossing(c),
             edge_or_vertex,
-            "{}, EdgeOrVertexChainCrossing(c)",
+            "{}, edge_or_vertex_chain_crossing(c)",
             input
         );
         assert_eq!(
-            crosser.EdgeOrVertexCrossing(d, c),
+            crosser.edge_or_vertex_crossing(d, c),
             edge_or_vertex,
             "{}, EdgeOrVertexCrossing(d, c)",
             input
         );
         assert_eq!(
-            crosser.EdgeOrVertexCrossing(c, d),
+            crosser.edge_or_vertex_crossing(c, d),
             edge_or_vertex,
             "{}, EdgeOrVertexCrossing(c, d)",
             input

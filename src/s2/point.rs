@@ -94,6 +94,17 @@ impl<'a> From<&'a Vector3<f64>> for Point {
     }
 }
 
+impl From<Vector> for Point {
+    fn from(p: Vector) -> Self {
+        (&p).into()
+    }
+}
+impl<'a> From<&'a Vector> for Point {
+    fn from(p: &'a Vector) -> Self {
+        Point(Vector::new(p.x, p.y, p.z))
+    }
+}
+
 pub const ORIGIN: Point = Point(Vector {
     x: -0.0099994664350250197,
     y: 0.0025924542609324121,

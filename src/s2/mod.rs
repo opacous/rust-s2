@@ -19,12 +19,15 @@ pub mod predicates;
 
 pub mod shape;
 
-mod loops;
+// TODO: Disable to allow testing of other modules
+pub mod loops;
 
 mod edge_crosser;
 mod edge_crossings;
-// mod loops;
 #[cfg(test)]
 mod random;
 mod edge_clipping;
-mod shape_index;
+pub mod shape_index;
+pub mod shape_index_region;
+pub mod lax_loop;
+pub mod polygon;

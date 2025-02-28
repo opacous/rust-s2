@@ -78,8 +78,8 @@ impl Crossing {
     // one side or the other of AB. This is done in a way such that the
     // results are always consistent (see RobustSign).
     pub fn crossing_sign(a: &Point, b: &Point, c: &Point, d: &Point) -> Crossing {
-        let mut crosser = EdgeCrosser::NewChainEdgeCrosser(a, b, c);
-        crosser.ChainCrossingSign(*d)
+        let mut crosser = EdgeCrosser::new_chain_edge_crosser(a, b, c);
+        crosser.chain_crossing_sign(*d)
     }
 }
 
@@ -107,7 +107,7 @@ impl Crossing {
 //	    VC(a,b,c,d) and VC(c,d,a,b) is true
 //
 // It is an error to call this method with 4 distinct vertices.
-pub fn VertexCrossing(a: &Point, b: &Point, c: &Point, d: &Point) -> bool {
+pub fn vertex_crossing(a: &Point, b: &Point, c: &Point, d: &Point) -> bool {
     // If A == B or C == D there is no intersection. We need to check this
     // case first in case 3 or more input points are identical.
     if a == b || c == d {
@@ -138,11 +138,11 @@ pub fn VertexCrossing(a: &Point, b: &Point, c: &Point, d: &Point) -> bool {
 // handle cases where two or more vertices are the same. This defines a crossing
 // function such that point-in-polygon containment tests can be implemented
 // by simply counting edge crossings.
-pub fn EdgeOrVertexCrossing(a: &Point, b: &Point, c: &Point, d: &Point) -> bool {
+pub fn edge_or_vertex_crossing(a: &Point, b: &Point, c: &Point, d: &Point) -> bool {
     match Crossing::crossing_sign(a, b, c, d) {
         Crossing::DoNotCross => false,
         Crossing::Cross => true,
-        Crossing::Maybe => VertexCrossing(a, b, c, d),
+        Crossing::Maybe => vertex_crossing(a, b, c, d),
     }
 }
 
@@ -157,7 +157,7 @@ pub fn EdgeOrVertexCrossing(a: &Point, b: &Point, c: &Point, d: &Point) -> bool 
 // The returned intersection point X is guaranteed to be very close to the
 // true intersection point of AB and CD, even if the edges intersect at a
 // very small angle.
-pub fn Intersection(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Point {
+pub fn intersection(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Point {
     // It is difficult to compute the intersection point of two edges accurately
     // when the angle between the edges is very small. Previously we handled
     // this by only guaranteeing that the returned intersection point is within
@@ -176,7 +176,7 @@ pub fn Intersection(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Point {
     //  - intersectionExact computes the intersection point using precision
     //    arithmetic and converts the final result back to an Point.
     let mut pt =
-        intersectionStable(a0, a1, b0, b1).unwrap_or_else(|e| intersectionExact(a0, a1, b0, b1));
+        intersection_stable(a0, a1, b0, b1).unwrap_or_else(|e| intersection_exact(a0, a1, b0, b1));
 
     // Make sure the intersection point is on the correct side of the sphere.
     // Since all vertices are unit length, and edges are less than 180 degrees,
@@ -195,7 +195,7 @@ pub fn Intersection(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Point {
 // product before normalization, which is useful for estimating the amount of
 // error in the result.  For numerical stability, the vectors should both be
 // approximately unit length.
-fn robustNormalWithLength(x: &Vector, y: &Vector) -> (Vector, f64) {
+fn robust_normal_with_length(x: &Vector, y: &Vector) -> (Vector, f64) {
     // This computes 2 * (x.cross(y)), but has much better numerical
     // stability when x and y are unit length.
     let tmp = x.sub(y).cross(&x.add(y));
@@ -259,7 +259,7 @@ fn projection(x: &Vector, aNorm: &Vector, aNormLen: f64, a0: &Point, a1: &Point)
 
 // compareEdges reports whether (a0,a1) is less than (b0,b1) with respect to a total
 // ordering on edges that is invariant under edge reversals.
-fn compareEdges(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> bool {
+fn compare_edges(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> bool {
     let (a0, a1) = match a0.0.cmp(&a1.0) {
         Ordering::Less => (a0, a1),
         Ordering::Equal => (a1, a0),
@@ -282,7 +282,7 @@ fn compareEdges(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> bool {
 // The intersection point is not guaranteed to have the correct sign because we
 // choose to use the longest of the two edges first. The sign is corrected by
 // Intersection.
-fn intersectionStable(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Result<Point, Point> {
+fn intersection_stable(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Result<Point, Point> {
     // Sort the two edges so that (a0,a1) is longer, breaking ties in a
     // deterministic way that does not depend on the ordering of the endpoints.
     // This is desirable for two reasons:
@@ -292,17 +292,17 @@ fn intersectionStable(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Result<
     //    is used for interpolation (where a shorter edge means less error).
     let aLen2 = a1.0.sub(a0.0).norm2();
     let bLen2 = b1.0.sub(b0.0).norm2();
-    if aLen2 < bLen2 || (aLen2 == bLen2 && compareEdges(a0, a1, b0, b1)) {
-        return intersectionStableSorted(b0, b1, a0, a1);
+    if aLen2 < bLen2 || (aLen2 == bLen2 && compare_edges(a0, a1, b0, b1)) {
+        return intersect_stable_sorted(b0, b1, a0, a1);
     }
 
-    intersectionStableSorted(a0, a1, b0, b1)
+    intersect_stable_sorted(a0, a1, b0, b1)
 }
 
 // intersectionStableSorted is a helper fntion for intersectionStable.
 // It expects that the edges (a0,a1) and (b0,b1) have been sorted so that
 // the first edge passed in is longer.
-fn intersectionStableSorted(
+fn intersect_stable_sorted(
     a0: &Point,
     a1: &Point,
     b0: &Point,
@@ -357,7 +357,7 @@ fn intersectionStableSorted(
 // rounded down to double precision at the end. Also, the intersection point
 // is not guaranteed to have the correct sign (i.e., the return value may need
 // to be negated).
-fn intersectionExact(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Point {
+fn intersection_exact(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Point {
     // Since we are using presice arithmetic, we don't need to worry about
     // numerical stability.
     let a0P: PreciseVector = a0.0.into();
@@ -423,7 +423,7 @@ fn intersectionExact(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Point {
 //	    AngleContainsVertex(v_{i+1}, b, v_i) is true for exactly one value of i.
 //
 // REQUIRES: a != b && b != c
-pub fn AngleContainsVertex(a: &Point, b: &Point, c: &Point) -> bool {
+pub fn angle_contains_vertex(a: &Point, b: &Point, c: &Point) -> bool {
     // A loop with consecutive vertices A, B, C contains vertex B if and only if
     // the fixed vector R = referenceDir(B) is contained by the wedge ABC.  The
     // wedge is closed at A and open at C, i.e. the point B is inside the loop
@@ -459,7 +459,7 @@ mod tests {
     // Helper function for the tests to return a positively
     // oriented intersection Point of the two line segments (a0,a1) and (b0,b1).
     fn test_intersection_exact(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Point {
-        let mut x = intersectionExact(a0, a1, b0, b1);
+        let mut x = intersection_exact(a0, a1, b0, b1);
         if x.0.dot(&a0.0.add(a1.0.add(b0.0.add(b1.0)))) < 0.0 {
             x = Point(x.0.mul(-1.0));
         }
@@ -612,7 +612,7 @@ mod tests {
 
         // Degenerate angle ABA.
         assert!(
-            !AngleContainsVertex(&a, &b, &a),
+            !angle_contains_vertex(&a, &b, &a),
             "AngleContainsVertex({:?}, {:?}, {:?}) = true, want false",
             a,
             b,
@@ -621,7 +621,7 @@ mod tests {
 
         // An angle where A == referenceDir(B).
         assert!(
-            AngleContainsVertex(&ref_b, &b, &a),
+            angle_contains_vertex(&ref_b, &b, &a),
             "AngleContainsVertex({:?}, {:?}, {:?}) = false, want true",
             ref_b,
             b,
@@ -630,7 +630,7 @@ mod tests {
 
         // An angle where C == referenceDir(B).
         assert!(
-            !AngleContainsVertex(&a, &b, &ref_b),
+            !angle_contains_vertex(&a, &b, &ref_b),
             "AngleContainsVertex({:?}, {:?}, {:?}) = true, want false",
             a,
             b,
@@ -698,7 +698,7 @@ mod tests {
                 let d = Point(p.0.add(d2.0.mul((1.0 - c_fraction) * cd_len)).normalize());
 
                 let mut crosser = EdgeCrosser::new(&a, &b);
-                if crosser.CrossingSign(c, d) == Crossing::Cross {
+                if crosser.crossing_sign(c, d) == Crossing::Cross {
                     println!("Found crossing segments:");
                     println!("  a: {:?}", a);
                     println!("  b: {:?}", b);
@@ -781,7 +781,7 @@ mod tests {
             );
 
             // Now we actually test the Intersection() method.
-            let actual = Intersection(&a, &b, &c, &d);
+            let actual = intersection(&a, &b, &c, &d);
             let dist_ab = distance_from_segment(&actual, &a, &b);
             let dist_cd = distance_from_segment(&actual, &c, &d);
             let point_dist = expected.distance(&actual);

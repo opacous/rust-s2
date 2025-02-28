@@ -17,21 +17,21 @@ use std::cmp::*;
 // Edge represents a geodesic edge consisting of two vertices. Zero-length edges are
 // allowed, and can be used to represent points.
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Edge {
-    pub v0: Point,
-    pub v1: Point,
+    pub v0: s2Point,
+    pub v1: s2Point,
 }
 
 impl Eq for Edge {}
 
 impl Ord for Edge {
     fn cmp(&self, other: &Edge) -> Ordering {
-        let v0cmp = self.v0.cmp(&other.v0);
+        let v0cmp = self.v0.0.cmp(&other.v0.0);
         if v0cmp != Ordering::Equal {
             v0cmp
         } else {
-            self.v0.cmp(&other.v1)
+            self.v0.0.cmp(&other.v1.0)
         }
     }
 }
@@ -86,9 +86,9 @@ pub struct ShapeEdge {
 /// edge IDs {start, start + 1, ..., start + length - 1}.
 pub struct Chain {
     #[allow(unused)]
-    start: i64,
+    pub(crate) start: i64,
     #[allow(unused)]
-    length: i64,
+    pub(crate) length: i64,
 }
 
 /// ChainPosition represents the position of an edge within a given edge chain,
@@ -96,18 +96,18 @@ pub struct Chain {
 /// starting from zero, and offsets are measured from the start of each chain.
 pub struct ChainPosition {
     #[allow(unused)]
-    chain_id: i64,
+    pub(crate) chain_id: i64,
     #[allow(unused)]
-    offset: i64,
+    pub(crate) offset: i64,
 }
 
 /// A ReferencePoint consists of a point and a boolean indicating whether the point
 /// is contained by a particular shape.
 pub struct ReferencePoint {
     #[allow(unused)]
-    point: s2Point,
+    pub point: s2Point,
     #[allow(unused)]
-    contained: bool,
+    pub contained: bool,
 }
 
 impl ReferencePoint {

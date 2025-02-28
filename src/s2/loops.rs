@@ -167,17 +167,15 @@ impl Loop {
     }
 
 
-
-
     /// init_bound sets up the approximate bounding Rects for this loop.
     fn init_bound(&mut self) {
         if self.vertices.is_empty() {
             *self = Self::empty_loop();
             return;
         }
-        
+
         // Check for the special "empty" and "full" loops.
-        if self.is_empty_or_full() { 
+        if self.is_empty_or_full() {
             if self.is_empty() {
                 self.bound = Rect::empty();
             } else {
@@ -193,33 +191,33 @@ impl Loop {
         // entirely around the sphere (e.g. a loop that defines two revolutions of a
         // candy-cane stripe). Third, the loop may include one or both poles.
         // Note that a small clockwise loop near the equator contains both poles.
-        
+
         // TODO: Implement RectBounder
         // For now, use a simple implementation that just takes the bounds of the vertices
         let mut lat_min = std::f64::MAX;
         let mut lat_max = std::f64::MIN;
         let mut lng_min = std::f64::MAX;
         let mut lng_max = std::f64::MIN;
-        
+
         for v in &self.vertices {
             // Convert to lat/lng
             let lat = v.0.z.asin();
             let lng = v.0.y.atan2(v.0.x);
-            
+
             lat_min = lat_min.min(lat);
             lat_max = lat_max.max(lat);
             lng_min = lng_min.min(lng);
             lng_max = lng_max.max(lng);
         }
-        
+
         // Create a simple bounding rectangle
         self.bound = Rect::from_lat_lng(
             r1::Interval::new(lat_min, lat_max),
             s1::Interval::new(lng_min, lng_max)
         );
-        
+
         // TODO: Handle poles and wrapping properly
-        
+
         // Create the subregion bound
         self.subregion_bound = self.bound.clone();
         // TODO: Implement expand_for_subregions
@@ -228,11 +226,11 @@ impl Loop {
     /// validate checks whether this is a valid loop.
     pub fn validate(&self) -> S2Result<()> {
         self.find_validation_error_no_index()?;
-    
+
         // Check for intersections between non-adjacent edges (including at vertices)
         // TODO: Once shapeutil gets find_any_crossing uncomment this.
         // find_any_crossing(self.index)
-    
+
         Ok(())
     }
 
@@ -271,12 +269,12 @@ impl Loop {
                     format!("edge {} is degenerate (duplicate vertex)", i)
                 ));
             }
-    
+
             // Antipodal vertices are not allowed.
             let other = Point(self.vertex(i as i64 + 1).0.mul(-1.0));
             if *v == other {
                 return Err(S2Error::InvalidLoop(format!(
-                    "vertices {} and {} are antipodal", 
+                    "vertices {} and {} are antipodal",
                     i, (i + 1) % self.vertices.len()
                 )));
             }
@@ -284,6 +282,7 @@ impl Loop {
 
         Ok(())
     }
+}
 
 /// Contains reports whether the region contained by this loop is a superset of the
 /// region contained by the given other loop.

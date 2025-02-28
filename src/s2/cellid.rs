@@ -168,6 +168,49 @@ impl CellID {
         }
     }
 
+    // CellIDFromString returns a CellID from a string in the form "1/3210".
+    // func CellIDFromString(s string) CellID {
+    // level := len(s) - 2
+    // if level < 0 || level > MaxLevel {
+    // return CellID(0)
+    // }
+    // face := int(s[0] - '0')
+    // if face < 0 || face > 5 || s[1] != '/' {
+    // return CellID(0)
+    // }
+    // id := CellIDFromFace(face)
+    // for i := 2; i < len(s); i++ {
+    // childPos := s[i] - '0'
+    // if childPos < 0 || childPos > 3 {
+    // return CellID(0)
+    // }
+    // id = id.Children()[childPos]
+    // }
+    // return id
+    // }
+
+
+    // from_string returns a CellID from a string in the form "1/3210".
+    pub fn from_string(s: &str) -> CellID {
+        let level = s.len() - 2;
+        if level < 0 || level > MAX_LEVEL as usize {
+            return CellID(0);
+        }
+        let face = s.as_bytes()[0] - b'0';
+        if face < 0 || face > 5 || s.as_bytes()[1] != b'/' {
+            return CellID(0);
+        }
+        let mut id = CellID::from_face(face as u64);
+        for i in 2..s.len() {
+            let child_pos = s.as_bytes()[i] - b'0';
+            if child_pos < 0 || child_pos > 3 {
+                return CellID(0);
+            }
+            id = id.children()[child_pos as usize];
+        }
+        id
+    }
+
     /// from_token returns a cell given a hex-encoded string of its uint64 ID.
     pub fn from_token(s: &str) -> CellID {
         match u64::from_str_radix(s, 16) {
