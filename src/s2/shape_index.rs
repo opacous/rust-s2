@@ -1,7 +1,11 @@
 use crate::consts::DBL_EPSILON;
+use crate::edgeutil::interpolate;
+use crate::metric::AVG_EDGEMETRIC;
+use crate::r1;
 use crate::r2::point::Point as R2Point;
 use crate::r2::rect::Rect as R2Rect;
 use crate::s2::cellid::CellID;
+use crate::s2::edge_clipping::interpolate_f64;
 use crate::s2::edge_crosser::EdgeCrosser;
 use crate::s2::point::Point;
 use crate::s2::shape_index_region::{ContainsPointQuery, ShapeIndexRegion, VertexModel};
@@ -9,7 +13,7 @@ use crate::s2::stuv::{face, face_uv_to_xyz, valid_face_xyz_to_uv};
 use crate::shape::{Edge, Shape};
 use crate::shape_index::Status::Fresh;
 use std::collections::BTreeMap;
-use std::ops::Deref;
+use std::ops::{Deref, Sub};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -69,7 +73,7 @@ pub const CELL_SIZE_TO_LONG_EDGE_RATIO: f64 = 1.0;
 #[derive(Debug, Clone)]
 pub struct ClippedShape {
     // shapeID is the index of the shape this clipped shape is a part of.
-    shape_id: i32,
+    pub(crate) shape_id: i32,
     // containsCenter indicates if the center of the CellID this shape has been
     // clipped to falls inside this shape. This is false for shapes that do not
     // have an interior.
@@ -77,7 +81,7 @@ pub struct ClippedShape {
 
     // edges is the ordered set of ShapeIndex original edge IDs. Edges
     // are stored in increasing order of edge ID.
-    edges: Vec<i32>,
+    pub(crate) edges: Vec<i32>,
 }
 
 impl ClippedShape {
@@ -106,7 +110,7 @@ impl ClippedShape {
 // ShapeIndexCell stores the index contents for a particular CellID.
 #[derive(Debug, Clone)]
 pub struct ShapeIndexCell {
-    shapes: Vec<ClippedShape>,
+    pub(crate) shapes: Vec<ClippedShape>,
 }
 
 impl ShapeIndexCell {
@@ -141,7 +145,7 @@ impl ShapeIndexCell {
     }
 }
 
-// faceEdge and clippedEdge store temporary edge data while the index is being
+// faceEdge and ClippedEdge store temporary edge data while the index is being
 // updated.
 //
 // While it would be possible to combine all the edge information into one
@@ -155,7 +159,7 @@ impl ShapeIndexCell {
 //
 //  - Performance. UpdateEdges is significantly faster on large polygons when
 //    the data is separated, because it often only needs to access the data in
-//    clippedEdge and this data is cached more successfully.
+//    ClippedEdge and this data is cached more successfully.
 
 // faceEdge represents an edge that has been projected onto a given face,
 #[derive(Debug, Clone)]
@@ -169,7 +173,7 @@ pub struct FaceEdge {
     edge: Edge, // The original edge.
 }
 
-// clippedEdge represents the portion of that edge that has been clipped to a given Cell.
+// ClippedEdge represents the portion of that edge that has been clipped to a given Cell.
 #[derive(Debug, Clone)]
 pub struct ClippedEdge {
     face_edge: FaceEdge, // The original unclipped edge
@@ -203,10 +207,18 @@ pub struct ShapeIndexIterator<'a> {
 
 impl<'a> Iterator for ShapeIndexIterator<'a> {
     type Item = &'a ShapeIndexCell;
+
     fn next(&mut self) -> Option<Self::Item> {
-        let retv = self.index_cell();
-        self.next();
-        retv
+        if self.done() {
+            return None;
+        }
+
+        let cell = self.cell;
+        // Advance the iterator for the next call
+        self.position += 1;
+        self.refresh();
+
+        cell
     }
 }
 
@@ -287,8 +299,9 @@ impl<'a> ShapeIndexIterator<'a> {
 
     // end positions the iterator at the end of the index.
     pub fn end(&mut self) {
-        self.position = self.index.cells.len();
-        self.refresh();
+        let data = self.index.index_data.lock().unwrap();
+        self.position = data.cells.len();
+        &self.refresh();
     }
 
     // done reports if the iterator is positioned at or after the last index cell.
@@ -298,9 +311,12 @@ impl<'a> ShapeIndexIterator<'a> {
 
     // refresh updates the stored internal iterator values.
     fn refresh(&mut self) {
-        if self.position < self.index.cells.len() {
-            self.id = self.index.cells[self.position];
-            self.cell = self.index.cell_map.get(&self.id);
+        // We need to manually extract and process data to avoid lifetime issues
+        let data = self.index.index_data.lock().unwrap();
+
+        if self.position < data.cells.len() {
+            self.id = data.cells[self.position];
+            self.cell = data.cell_map.get(&self.id).clone();
         } else {
             self.id = CellID::sentinel();
             self.cell = None;
@@ -310,13 +326,20 @@ impl<'a> ShapeIndexIterator<'a> {
     // seek positions the iterator at the first cell whose ID >= target, or at the
     // end of the index if no such cell exists.
     pub fn seek(&mut self, target: CellID) {
+        // Get a lock on the index data to access cells
+        let data = self.index.index_data.lock().unwrap();
+
         // Using binary search to find the position
-        self.position = self
-            .index
-            .cells
-            .binary_search(&target)
-            .unwrap_or_else(|pos| pos);
-        self.refresh();
+        self.position = data.cells.binary_search(&target).unwrap_or_else(|pos| pos);
+
+        // Update the iterator state with the lock still held
+        if self.position < data.cells.len() {
+            self.id = data.cells[self.position];
+            self.cell = data.cell_map.get(&self.id);
+        } else {
+            self.id = CellID::sentinel();
+            self.cell = None;
+        }
     }
 
     // locate_point positions the iterator at the cell that contains the given Point.
@@ -590,12 +613,24 @@ pub enum Status {
 //	// Now you can use a CrossingEdgeQuery or ClosestEdgeQuery here.
 // #[derive(Debug)]
 pub struct ShapeIndex {
-    // shapes is a map of shape ID to shape.
-    shapes: BTreeMap<i32, Box<dyn Shape>>,
+    // Mutex protected data
+    index_data: Mutex<ShapeIndexData>,
+
+    // The current status of the index; accessed atomically.
+    status: Mutex<Status>,
 
     // The maximum number of edges per cell.
-    // TODO(roberts): Update the comments when the usage of this is implemented.
     max_edges_per_cell: i32,
+
+    // This mutex protects access to the internal state during updates
+    mu: Mutex<()>,
+}
+
+// ShapeIndexData contains all the data fields for the shape index.
+// These fields are protected by a mutex in the ShapeIndex struct.
+struct ShapeIndexData {
+    // shapes is a map of shape ID to shape.
+    shapes: BTreeMap<i32, Box<dyn Shape>>,
 
     // nextID tracks the next ID to hand out. IDs are not reused when shapes
     // are removed from the index.
@@ -603,34 +638,10 @@ pub struct ShapeIndex {
 
     // cellMap is a map from CellID to the set of clipped shapes that intersect that
     // cell. The cell IDs cover a set of non-overlapping regions on the sphere.
-    // In C++, this is a BTree, so the cells are ordered naturally by the data structure.
     cell_map: BTreeMap<CellID, ShapeIndexCell>,
+
     // Track the ordered list of cell IDs.
     cells: Vec<CellID>,
-
-    // The current status of the index; accessed atomically.
-    status: Mutex<Status>,
-
-    // Additions and removals are queued and processed on the first subsequent
-    // query. There are several reasons to do this:
-    //
-    //  - It is significantly more efficient to process updates in batches if
-    //    the amount of entities added grows.
-    //  - Often the index will never be queried, in which case we can save both
-    //    the time and memory required to build it. Examples:
-    //     + Loops that are created simply to pass to an Polygon. (We don't
-    //       need the Loop index, because Polygon builds its own index.)
-    //     + Applications that load a database of geometry and then query only
-    //       a small fraction of it.
-    //
-    // The main drawback is that we need to go to some extra work to ensure that
-    // some methods are still thread-safe. Note that the goal is *not* to
-    // make this thread-safe in general, but simply to hide the fact that
-    // we defer some of the indexing work until query time.
-    //
-    // This mutex protects all of following fields in the index.
-    // TODO: This is not how rust mutexes work - better to wrap the whole struct.
-    mu: Mutex<()>,
 
     // pendingAdditionsPos is the index of the first entry that has not been processed
     // via applyUpdatesInternal.
@@ -645,15 +656,17 @@ impl ShapeIndex {
     // new creates a new ShapeIndex.
     pub fn new() -> Self {
         ShapeIndex {
+            index_data: Mutex::new(ShapeIndexData {
+                shapes: BTreeMap::new(),
+                cell_map: BTreeMap::new(),
+                cells: Vec::new(),
+                next_id: 0,
+                pending_additions_pos: 0,
+                pending_removals: Vec::new(),
+            }),
             max_edges_per_cell: 10,
-            shapes: BTreeMap::new(),
-            cell_map: BTreeMap::new(),
-            cells: Vec::new(),
             status: Mutex::new(Fresh),
-            next_id: 0,
             mu: Mutex::new(()),
-            pending_additions_pos: 0,
-            pending_removals: Vec::new(),
         }
     }
 
@@ -690,27 +703,32 @@ impl ShapeIndex {
 
     // len reports the number of Shapes in this index.
     pub fn len(&self) -> usize {
-        self.shapes.len()
+        let data = self.index_data.lock().unwrap();
+        data.shapes.len()
     }
 
     // is_empty reports whether this index is empty (has no shapes).
     pub fn is_empty(&self) -> bool {
-        self.shapes.is_empty()
+        let data = self.index_data.lock().unwrap();
+        data.shapes.is_empty()
     }
 
     // reset resets the index to its original state.
     pub fn reset(&mut self) {
-        self.shapes.clear();
-        self.next_id = 0;
-        self.cell_map.clear();
-        self.cells.clear();
-        let status_bind = self.status.get_mut().unwrap();
-        *status_bind = Status::Fresh;
+        let mut data = self.index_data.lock().unwrap();
+        data.shapes.clear();
+        data.next_id = 0;
+        data.cell_map.clear();
+        data.cells.clear();
+
+        // Reset the status to Fresh
+        *self.status.lock().unwrap() = Status::Fresh;
     }
 
     // num_edges returns the number of edges in this index.
     pub fn num_edges(&self) -> usize {
-        self.shapes
+        let data = self.index_data.lock().unwrap();
+        data.shapes
             .values()
             .map(|shape| shape.num_edges() as usize)
             .sum()
@@ -720,11 +738,12 @@ impl ShapeIndex {
     // limit. If the limit is encountered, the current running total is returned,
     // which may be more than the limit.
     pub fn num_edges_up_to(&self, limit: usize) -> usize {
+        let data = self.index_data.lock().unwrap();
         let mut num_edges = 0;
         // We choose to iterate over the shapes in order to match the counting
         // up behavior in C++ and for test compatibility instead of using a
         // more idiomatic range over the shape map.
-        for i in 0..=self.next_id {
+        for i in 0..=data.next_id {
             if let Some(s) = self.shape(i) {
                 num_edges += s.num_edges();
                 if num_edges >= limit as i64 {
@@ -737,8 +756,15 @@ impl ShapeIndex {
     }
 
     // shape returns the shape with the given ID, or None if the shape has been removed from the index.
-    pub fn shape(&self, id: i32) -> Option<&dyn Shape> {
-        self.shapes.get(&id).map(|s| s.as_ref())
+    pub fn shape(&self, id: i32) -> Option<Box<dyn Shape>> {
+        let data = self.index_data.lock().unwrap();
+        // We need to clone the shape to have ownership and avoid lifetime issues
+        data.shapes.get(&id).map(|s| {
+            let shape_ref = s;
+            // Assuming the Shape trait has a clone() method
+            let cloned_shape = shape_ref.clone().deref();
+            Box::new(cloned_shape)
+        })
     }
 
     // id_for_shape returns the id of the given shape in this index, or -1 if it is
@@ -749,7 +775,8 @@ impl ShapeIndex {
     // By having each type extend S2Shape which has an id element, they all inherit their
     // own id field rather than having to track it themselves.
     pub fn id_for_shape(&self, shape: &dyn Shape) -> i32 {
-        for (k, v) in &self.shapes {
+        let data = self.index_data.lock().unwrap();
+        for (k, v) in &data.shapes {
             if std::ptr::eq(v.as_ref() as *const dyn Shape, shape as *const dyn Shape) {
                 return *k;
             }
@@ -759,11 +786,13 @@ impl ShapeIndex {
 
     // add adds the given shape to the index and returns the assigned ID.
     pub fn add(&mut self, shape: Box<dyn Shape>) -> i32 {
-        let id = self.next_id;
-        self.shapes.insert(id, shape);
-        self.next_id += 1;
-        let status_bind = self.status.get_mut().unwrap();
-        *status_bind = Status::Stale;
+        let mut data = self.index_data.lock().unwrap();
+        let id = data.next_id;
+        data.shapes.insert(id, shape);
+        data.next_id += 1;
+
+        // Mark the index as stale
+        *self.status.lock().unwrap() = Status::Stale;
         id
     }
 
@@ -773,17 +802,19 @@ impl ShapeIndex {
         // process additions and removals in batches.
         let id = self.id_for_shape(shape);
 
+        let mut data = self.index_data.lock().unwrap();
+
         // If the shape wasn't found, it's already been removed or was not in the index.
-        if !self.shapes.contains_key(&id) {
+        if !data.shapes.contains_key(&id) {
             return;
         }
 
         // Remove the shape from the shapes map.
-        self.shapes.remove(&id);
+        data.shapes.remove(&id);
 
         // We are removing a shape that has not yet been added to the index,
         // so there is nothing else to do.
-        if id >= self.pending_additions_pos {
+        if id >= data.pending_additions_pos {
             return;
         }
 
@@ -795,9 +826,10 @@ impl ShapeIndex {
             edges: (0..num_edges).map(|e| shape.edge(e)).collect(),
         };
 
-        self.pending_removals.push(removed);
-        let status_bind = self.status.get_mut().unwrap();
-        *status_bind = Status::Stale;
+        data.pending_removals.push(removed);
+
+        // Mark the index as stale
+        *self.status.lock().unwrap() = Status::Stale;
     }
 
     // build triggers the update of the index. Calls to Add and Release are normally
@@ -827,30 +859,31 @@ impl ShapeIndex {
     fn is_first_update(&self) -> bool {
         // Note that it is not sufficient to check whether cellMap is empty, since
         // entries are added to it during the update process.
-        self.pending_additions_pos == 0
+        let data = self.index_data.lock().unwrap();
+        data.pending_additions_pos == 0
     }
 
     // is_shape_being_removed reports if the shape with the given ID is currently slated for removal.
     fn is_shape_being_removed(&self, shape_id: i32) -> bool {
         // All shape ids being removed fall below the index position of shapes being added.
-        shape_id < self.pending_additions_pos
+        let data = self.index_data.lock().unwrap();
+        shape_id < data.pending_additions_pos
     }
 
     // maybe_apply_updates checks if the index pieces have changed, and if so, applies pending updates.
-    fn maybe_apply_updates(&mut self) {
+    fn maybe_apply_updates(&self) {
         // TODO(roberts): To avoid acquiring and releasing the mutex on every
         // query, we should use atomic operations when testing whether the status
         // is fresh and when updating the status to be fresh. This guarantees
         // that any thread that sees a status of fresh will also see the
         // corresponding index updates.
-        if self.status.lock().unwrap().deref().clone() != Fresh {
+        let status = *self.status.lock().unwrap();
+        if status != Fresh {
             let _lock = self.mu.lock().unwrap();
             self.apply_updates_internal();
 
-            let status_bind = self.status.get_mut().unwrap();
-            *status_bind = Status::Fresh;
-
-            self.status.store(Fresh, Ordering::SeqCst);
+            // Update the status to Fresh after applying updates
+            *self.status.lock().unwrap() = Fresh;
         }
     }
 
@@ -861,16 +894,18 @@ impl ShapeIndex {
         // edge as the final index memory size. If this causes issues, add in
         // batched updating to limit the amount of items per batch to a
         // configurable memory footprint overhead.
-        let t = Tracker::new();
+        let mut t = Tracker::new();
 
         // allEdges maps a Face to a collection of faceEdges.
         let mut all_edges: Vec<Vec<FaceEdge>> = vec![Vec::new(); 6];
 
-        for p in &self.pending_removals {
+        let mut data = self.index_data.lock().unwrap();
+
+        for p in &data.pending_removals {
             self.remove_shape_internal(p, &mut all_edges, &mut t);
         }
 
-        for id in self.pending_additions_pos..self.next_id {
+        for id in data.pending_additions_pos..data.next_id {
             self.add_shape_internal(id, &mut all_edges, &mut t);
         }
 
@@ -878,8 +913,8 @@ impl ShapeIndex {
             self.update_face_edges(face, &all_edges[face], &mut t);
         }
 
-        self.pending_removals.clear();
-        self.pending_additions_pos = self.next_id;
+        data.pending_removals.clear();
+        data.pending_additions_pos = data.next_id;
         // It is the caller's responsibility to update the index status.
     }
 
@@ -887,7 +922,8 @@ impl ShapeIndex {
     // adds the clipped edges to the set of allEdges, and starts tracking its
     // interior if necessary.
     fn add_shape_internal(&self, shape_id: i32, all_edges: &mut [Vec<FaceEdge>], t: &mut Tracker) {
-        let shape = match self.shapes.get(&shape_id) {
+        let data = self.index_data.lock().unwrap();
+        let shape = match data.shapes.get(&shape_id) {
             Some(s) => s.as_ref(),
             None => return, // This shape has already been removed.
         };
@@ -912,7 +948,7 @@ impl ShapeIndex {
 
             let mut fe = face_edge.clone();
             fe.edge_id = e as i32;
-            fe.edge = edge;
+            fe.edge = edge.clone();
             fe.max_level = max_level_for_edge(edge);
             self.add_face_edge(fe, all_edges);
         }
@@ -920,22 +956,22 @@ impl ShapeIndex {
 
     // add_face_edge adds the given faceEdge into the collection of all edges.
     fn add_face_edge(&self, fe: FaceEdge, all_edges: &mut [Vec<FaceEdge>]) {
-        let a_face = face(fe.edge.v0.vector());
+        let a_face = face(&fe.edge.v0.0);
         // See if both endpoints are on the same face, and are far enough from
         // the edge of the face that they don't intersect any (padded) adjacent face.
-        if a_face == face(fe.edge.v1.vector()) {
-            let (x, y) = valid_face_xyz_to_uv(a_face, fe.edge.v0.vector());
+        if a_face == face(&fe.edge.v1.0) {
+            let (x, y) = valid_face_xyz_to_uv(a_face, &fe.edge.v0.0);
             let mut fe = fe.clone();
-            fe.a = Point::new(x, y);
+            fe.a = R2Point::new(x, y);
 
-            let (x, y) = valid_face_xyz_to_uv(a_face, fe.edge.v1.vector());
-            fe.b = Point::new(x, y);
+            let (x, y) = valid_face_xyz_to_uv(a_face, &fe.edge.v1.0);
+            fe.b = R2Point::new(x, y);
 
             let max_uv = 1.0 - CELL_PADDING;
-            if fe.a.x().abs() <= max_uv
-                && fe.a.y().abs() <= max_uv
-                && fe.b.x().abs() <= max_uv
-                && fe.b.y().abs() <= max_uv
+            if fe.a.x.abs() <= max_uv
+                && fe.a.y.abs() <= max_uv
+                && fe.b.x.abs() <= max_uv
+                && fe.b.y.abs() <= max_uv
             {
                 all_edges[a_face as usize].push(fe);
                 return;
@@ -960,110 +996,131 @@ impl ShapeIndex {
 
     // update_bound updates the specified endpoint of the given clipped edge and returns the
     // resulting clipped edge.
-    fn update_bound(&self, edge: &clippedEdge, u_end: usize, u: f64, v_end: usize, v: f64) -> ClippedEdge {
+    fn update_bound(
+        &self,
+        edge: &ClippedEdge,
+        u_end: usize,
+        u: f64,
+        v_end: usize,
+        v: f64,
+    ) -> ClippedEdge {
         let mut c = ClippedEdge {
             face_edge: edge.face_edge.clone(),
             bound: R2Rect::empty(),
         };
-        
+
         if u_end == 0 {
-            c.bound = R2Rect::from_points(
-                R2Point::new(u, if v_end == 0 { v } else { edge.bound.y().lo() }),
-                R2Point::new(edge.bound.x().hi(), if v_end == 0 { edge.bound.y().hi() } else { v }),
-            );
+            c.bound = R2Rect::from_points(&[
+                R2Point::new(u, if v_end == 0 { v } else { edge.bound.y.lo }),
+                R2Point::new(
+                    edge.bound.x.hi,
+                    if v_end == 0 { edge.bound.y.hi } else { v },
+                ),
+            ]);
         } else {
-            c.bound = R2Rect::from_points(
-                R2Point::new(edge.bound.x().lo(), if v_end == 0 { v } else { edge.bound.y().lo() }),
-                R2Point::new(u, if v_end == 0 { edge.bound.y().hi() } else { v }),
-            );
+            c.bound = R2Rect::from_points(&[
+                R2Point::new(
+                    edge.bound.x.lo,
+                    if v_end == 0 { v } else { edge.bound.y.lo },
+                ),
+                R2Point::new(u, if v_end == 0 { edge.bound.y.hi } else { v }),
+            ]);
         }
-        
+
         c
     }
-    
+
     // clip_u_bound clips the given endpoint (lo=0, hi=1) of the u-axis so that
     // it does not extend past the given value of the given edge.
-    fn clip_u_bound(&self, edge: &clippedEdge, u_end: usize, u: f64) -> ClippedEdge {
+    fn clip_u_bound(&self, edge: &ClippedEdge, u_end: usize, u: f64) -> ClippedEdge {
         // First check whether the edge actually requires any clipping.
         if u_end == 0 {
-            if edge.bound.x().lo() >= u {
+            if edge.bound.x.lo >= u {
                 return edge.clone();
             }
         } else {
-            if edge.bound.x().hi() <= u {
+            if edge.bound.x.hi <= u {
                 return edge.clone();
             }
         }
-        
+
         // We interpolate the new v-value from the endpoints of the original edge.
         // This has two advantages: (1) we don't need to store the clipped endpoints
         // at all, just their bounding box; and (2) it avoids the accumulation of
         // roundoff errors due to repeated interpolations. The result needs to be
         // clamped to ensure that it is in the appropriate range.
         let e = &edge.face_edge;
-        let v = edge.bound.y().clamp_point(
-            crate::r1::interpolate_f64(u, e.a.x(), e.b.x(), e.a.y(), e.b.y())
-        );
-        
+        let v = edge
+            .bound
+            .y
+            .clamp_point(crate::s2::edge_clipping::interpolate_f64(
+                u, e.a.x, e.b.x, e.a.y, e.b.y,
+            ));
+
         // Determine which endpoint of the v-axis bound to update. If the edge
         // slope is positive we update the same endpoint, otherwise we update the
         // opposite endpoint.
-        let v_end = if (u_end == 1) == ((e.a.x() > e.b.x()) == (e.a.y() > e.b.y())) {
+        let v_end = if (u_end == 1) == ((e.a.x > e.b.x) == (e.a.y > e.b.y)) {
             1
         } else {
             0
         };
-        
+
         self.update_bound(edge, u_end, u, v_end, v)
     }
-    
+
     // clip_v_bound clips the given endpoint (lo=0, hi=1) of the v-axis so that
     // it does not extend past the given value of the given edge.
-    fn clip_v_bound(&self, edge: &clippedEdge, v_end: usize, v: f64) -> ClippedEdge {
+    fn clip_v_bound(&self, edge: &ClippedEdge, v_end: usize, v: f64) -> ClippedEdge {
         if v_end == 0 {
-            if edge.bound.y().lo() >= v {
+            if edge.bound.y.lo >= v {
                 return edge.clone();
             }
         } else {
-            if edge.bound.y().hi() <= v {
+            if edge.bound.y.hi <= v {
                 return edge.clone();
             }
         }
-        
+
         // We interpolate the new u-value from the endpoints of the original edge.
         let e = &edge.face_edge;
-        let u = edge.bound.x().clamp_point(
-            crate::r1::interpolate_f64(v, e.a.y(), e.b.y(), e.a.x(), e.b.x())
-        );
-        
+        let u = edge
+            .bound
+            .x
+            .clamp_point(interpolate_f64(v, e.a.y, e.b.y, e.a.x, e.b.x));
+
         // Determine which endpoint of the u-axis bound to update.
-        let u_end = if (v_end == 1) == ((e.a.x() > e.b.x()) == (e.a.y() > e.b.y())) {
+        let u_end = if (v_end == 1) == ((e.a.x > e.b.x) == (e.a.y > e.b.y)) {
             1
         } else {
             0
         };
-        
+
         self.update_bound(edge, u_end, u, v_end, v)
     }
-    
+
     // clip_v_axis returns the given edge clipped to within the boundaries of the middle
     // interval along the v-axis, and returns the edges for the lower and upper children.
-    fn clip_v_axis(&self, edge: &clippedEdge, middle: crate::r1::Interval) -> (Option<ClippedEdge>, Option<ClippedEdge>) {
-        if edge.bound.y().hi() <= middle.lo {
+    fn clip_v_axis(
+        &self,
+        edge: &ClippedEdge,
+        middle: r1::interval::Interval,
+    ) -> (Option<ClippedEdge>, Option<ClippedEdge>) {
+        if edge.bound.y.hi <= middle.lo {
             // Edge is entirely contained in the lower child.
             return (Some(edge.clone()), None);
-        } else if edge.bound.y().lo() >= middle.hi {
+        } else if edge.bound.y.lo >= middle.hi {
             // Edge is entirely contained in the upper child.
             return (None, Some(edge.clone()));
         }
-        
+
         // The edge bound spans both children.
         (
             Some(self.clip_v_bound(edge, 1, middle.hi)),
-            Some(self.clip_v_bound(edge, 0, middle.lo))
+            Some(self.clip_v_bound(edge, 0, middle.lo)),
         )
     }
-    
+
     // update_face_edges adds or removes the various edges from the index.
     // An edge is added if shapes[id] is not nil, and removed otherwise.
     fn update_face_edges(&self, face: usize, face_edges: &[FaceEdge], t: &mut Tracker) {
@@ -1071,29 +1128,29 @@ impl ShapeIndex {
         if num_edges == 0 && t.shape_ids.is_empty() {
             return;
         }
-        
-        // Create the initial clippedEdge for each faceEdge. Additional clipped
+
+        // Create the initial ClippedEdge for each faceEdge. Additional clipped
         // edges are created when edges are split between child cells. We create
-        // an array of clipped edges, so that during the recursion we only need 
+        // an array of clipped edges, so that during the recursion we only need
         // to copy pointers in order to propagate an edge to the correct child.
         let mut clipped_edges = Vec::with_capacity(num_edges);
         let mut bound = R2Rect::empty();
-        
+
         for face_edge in face_edges {
             let mut clipped = ClippedEdge {
                 face_edge: face_edge.clone(),
-                bound: R2Rect::from_points(face_edge.a, face_edge.b),
+                bound: R2Rect::from_points(&[face_edge.a, face_edge.b]),
             };
-            
+
             bound = bound.union(&clipped.bound);
             clipped_edges.push(clipped);
         }
-        
+
         // Construct the initial face cell containing all the edges, and then update
         // all the edges in the index recursively.
         let face_id = CellID::from_face(face as u64);
-        let pcell = crate::s2::padded_cell::PaddedCellFromCellID(face_id, CELL_PADDING);
-        
+        let pcell = crate::s2::padded_cell::PaddedCell::from_cell_id(face_id, CELL_PADDING);
+
         let disjoint_from_index = self.is_first_update();
         if num_edges > 0 {
             let shrunk_id = self.shrink_to_fit(&pcell, bound);
@@ -1102,22 +1159,33 @@ impl ShapeIndex {
                 // can save a lot of work by starting directly with that cell, but if we
                 // are in the interior of at least one shape then we need to create
                 // index entries for the cells we are skipping over.
-                self.skip_cell_range(face_id.range_min(), shrunk_id.range_min(), t, disjoint_from_index);
-                let new_pcell = crate::s2::padded_cell::PaddedCellFromCellID(shrunk_id, CELL_PADDING);
+                self.skip_cell_range(
+                    face_id.range_min(),
+                    shrunk_id.range_min(),
+                    t,
+                    disjoint_from_index,
+                );
+                let new_pcell =
+                    crate::s2::padded_cell::PaddedCell::from_cell_id(shrunk_id, CELL_PADDING);
                 self.update_edges(&new_pcell, &clipped_edges, t, disjoint_from_index);
-                self.skip_cell_range(shrunk_id.range_max().next(), face_id.range_max().next(), t, disjoint_from_index);
+                self.skip_cell_range(
+                    shrunk_id.range_max().next(),
+                    face_id.range_max().next(),
+                    t,
+                    disjoint_from_index,
+                );
                 return;
             }
         }
-        
+
         // Otherwise (no edges, or no shrinking is possible), subdivide normally.
         self.update_edges(&pcell, &clipped_edges, t, disjoint_from_index);
     }
-    
+
     // shrink_to_fit shrinks the PaddedCell to fit within the given bounds.
     fn shrink_to_fit(&self, pcell: &crate::s2::padded_cell::PaddedCell, bound: R2Rect) -> CellID {
-        let shrunk_id = pcell.shrink_to_fit(bound);
-        
+        let shrunk_id = pcell.shrink_to_fit(&bound);
+
         if !self.is_first_update() && shrunk_id != pcell.cell_id() {
             // Don't shrink any smaller than the existing index cells, since we need
             // to combine the new edges with those cells.
@@ -1128,31 +1196,43 @@ impl ShapeIndex {
         }
         shrunk_id
     }
-    
+
     // skip_cell_range skips over the cells in the given range, creating index cells if we are
     // currently in the interior of at least one shape.
-    fn skip_cell_range(&self, begin: CellID, end: CellID, t: &mut Tracker, disjoint_from_index: bool) {
+    fn skip_cell_range(
+        &self,
+        begin: CellID,
+        end: CellID,
+        t: &mut Tracker,
+        disjoint_from_index: bool,
+    ) {
         // If we aren't in the interior of a shape, then skipping over cells is easy.
         if t.shape_ids.is_empty() {
             return;
         }
-        
+
         // Otherwise generate the list of cell ids that we need to visit, and create
         // an index entry for each one.
-        let skipped = crate::s2::cellunion::cell_union_from_range(begin, end);
-        for cell in skipped {
+        let skipped = crate::s2::cellunion::CellUnion::from_range(begin, end);
+        for cell in skipped.0 {
             let empty_edges: Vec<ClippedEdge> = Vec::new();
-            let pcell = crate::s2::padded_cell::PaddedCellFromCellID(cell, CELL_PADDING);
+            let pcell = crate::s2::padded_cell::PaddedCell::from_cell_id(cell, CELL_PADDING);
             self.update_edges(&pcell, &empty_edges, t, disjoint_from_index);
         }
     }
-    
+
     // update_edges adds or removes the given edges whose bounding boxes intersect a
     // given cell. disjoint_from_index is an optimization hint indicating that cellMap
     // does not contain any entries that overlap the given cell.
-    fn update_edges(&self, pcell: &crate::s2::padded_cell::PaddedCell, edges: &[ClippedEdge], t: &mut Tracker, disjoint_from_index: bool) {
+    fn update_edges(
+        &self,
+        pcell: &crate::s2::padded_cell::PaddedCell,
+        edges: &[ClippedEdge],
+        t: &mut Tracker,
+        disjoint_from_index: bool,
+    ) {
         // This function is recursive with a maximum recursion depth of 30 (MAX_LEVEL).
-        
+
         // Incremental updates are handled as follows. All edges being added or
         // removed are combined together in edges, and all shapes with interiors
         // are tracked using tracker. We subdivide recursively as usual until we
@@ -1166,10 +1246,10 @@ impl ShapeIndex {
         //   - Continue subdividing recursively, creating new index cells as needed.
         //   - When the recursion gets back to the cell that was absorbed, we
         //     restore edges and tracker to their previous state.
-        
+
         let mut index_cell_absorbed = false;
         let mut disjoint_from_index = disjoint_from_index;
-        
+
         if !disjoint_from_index {
             // There may be existing index cells contained inside pcell. If we
             // encounter such a cell, we need to combine the edges being updated with
@@ -1186,7 +1266,7 @@ impl ShapeIndex {
                 disjoint_from_index = true;
             }
         }
-        
+
         // If there are existing index cells below us, then we need to keep
         // subdividing so that we can merge with those cells. Otherwise,
         // make_index_cell checks if the number of edges is small enough, and creates
@@ -1195,55 +1275,55 @@ impl ShapeIndex {
             // Build up vectors of edges to be passed to each child cell.
             // The (i,j) directions are left (i=0), right (i=1), lower (j=0), and upper (j=1).
             let mut child_edges = vec![vec![vec![]; 2]; 2]; // [i][j]
-            
+
             // Compute the middle of the padded cell, defined as the rectangle in
             // (u,v)-space that belongs to all four (padded) children. By comparing
             // against the four boundaries of middle we can determine which children
             // each edge needs to be propagated to.
             let middle = pcell.middle();
-            
+
             // Build up a vector of edges to be passed to each child cell.
             // Note that the vast majority of edges are propagated to a single child.
             for edge in edges {
-                if edge.bound.x().hi() <= middle.x().lo() {
+                if edge.bound.x.hi <= middle.x.lo {
                     // Edge is entirely contained in the two left children.
-                    let (a, b) = self.clip_v_axis(edge, *middle.y());
+                    let (a, b) = self.clip_v_axis(edge, middle.y);
                     if let Some(edge) = a {
                         child_edges[0][0].push(edge);
                     }
                     if let Some(edge) = b {
                         child_edges[0][1].push(edge);
                     }
-                } else if edge.bound.x().lo() >= middle.x().hi() {
+                } else if edge.bound.x.lo >= middle.x.hi {
                     // Edge is entirely contained in the two right children.
-                    let (a, b) = self.clip_v_axis(edge, *middle.y());
+                    let (a, b) = self.clip_v_axis(edge, middle.y);
                     if let Some(edge) = a {
                         child_edges[1][0].push(edge);
                     }
                     if let Some(edge) = b {
                         child_edges[1][1].push(edge);
                     }
-                } else if edge.bound.y().hi() <= middle.y().lo() {
+                } else if edge.bound.y.hi <= middle.y.lo {
                     // Edge is entirely contained in the two lower children.
-                    if let Some(a) = self.clip_u_bound(edge, 1, middle.x().hi()) {
+                    if let a = self.clip_u_bound(edge, 1, middle.x.hi) {
                         child_edges[0][0].push(a);
                     }
-                    if let Some(b) = self.clip_u_bound(edge, 0, middle.x().lo()) {
+                    if let b = self.clip_u_bound(edge, 0, middle.x.lo) {
                         child_edges[1][0].push(b);
                     }
-                } else if edge.bound.y().lo() >= middle.y().hi() {
+                } else if edge.bound.y.lo >= middle.y.hi {
                     // Edge is entirely contained in the two upper children.
-                    if let Some(a) = self.clip_u_bound(edge, 1, middle.x().hi()) {
+                    if let a = self.clip_u_bound(edge, 1, middle.x.hi) {
                         child_edges[0][1].push(a);
                     }
-                    if let Some(b) = self.clip_u_bound(edge, 0, middle.x().lo()) {
+                    if let b = self.clip_u_bound(edge, 0, middle.x.lo) {
                         child_edges[1][1].push(b);
                     }
                 } else {
                     // The edge bound spans all four children. The edge
                     // itself intersects either three or four padded children.
-                    if let Some(left) = self.clip_u_bound(edge, 1, middle.x().hi()) {
-                        let (a, b) = self.clip_v_axis(&left, *middle.y());
+                    if let left = self.clip_u_bound(edge, 1, middle.x.hi) {
+                        let (a, b) = self.clip_v_axis(&left, middle.y);
                         if let Some(edge) = a {
                             child_edges[0][0].push(edge);
                         }
@@ -1251,9 +1331,9 @@ impl ShapeIndex {
                             child_edges[0][1].push(edge);
                         }
                     }
-                    
-                    if let Some(right) = self.clip_u_bound(edge, 0, middle.x().lo()) {
-                        let (a, b) = self.clip_v_axis(&right, *middle.y());
+
+                    if let right = self.clip_u_bound(edge, 0, middle.x.lo) {
+                        let (a, b) = self.clip_v_axis(&right, middle.y);
                         if let Some(edge) = a {
                             child_edges[1][0].push(edge);
                         }
@@ -1263,49 +1343,60 @@ impl ShapeIndex {
                     }
                 }
             }
-            
+
             // Now recursively update the edges in each child. We call the children in
             // increasing order of CellID so that when the index is first constructed,
             // all insertions into cellMap are at the end (which is much faster).
             for pos in 0..4 {
-                let (i, j) = pcell.child_i_j(pos);
-                if !child_edges[i][j].is_empty() || !t.shape_ids.is_empty() {
-                    let child_pcell = crate::s2::padded_cell::padded_cell_from_parent_i_j(pcell, i, j);
-                    self.update_edges(&child_pcell, &child_edges[i][j], t, disjoint_from_index);
+                let (i, j) = pcell.child_ij(pos);
+                if !child_edges[i as usize][j as usize].is_empty() || !t.shape_ids.is_empty() {
+                    let child_pcell =
+                        crate::s2::padded_cell::PaddedCell::from_parent_ij(pcell, i, j);
+                    self.update_edges(
+                        &child_pcell,
+                        &child_edges[i as usize][j as usize],
+                        t,
+                        disjoint_from_index,
+                    );
                 }
             }
         }
-        
+
         if index_cell_absorbed {
             // Restore the state for any edges being removed that we are tracking.
-            t.restore_state_before(self.pending_additions_pos);
+            t.restore_state_before(self.index_data.lock().unwrap().pending_additions_pos);
         }
     }
-    
+
     // make_index_cell builds an indexCell from the given padded cell and set of edges and adds
     // it to the index. If the cell or edges are empty, no cell is added.
     // Returns true if an index cell was created.
-    fn make_index_cell(&self, p: &crate::s2::padded_cell::PaddedCell, edges: &[ClippedEdge], t: &mut Tracker) -> bool {
+    fn make_index_cell(
+        &self,
+        p: &crate::s2::padded_cell::PaddedCell,
+        edges: &[ClippedEdge],
+        t: &mut Tracker,
+    ) -> bool {
         // If the cell is empty, no index cell is needed. (In most cases this
         // situation is detected before we get to this point, but this can happen
         // when all shapes in a cell are removed.)
         if edges.is_empty() && t.shape_ids.is_empty() {
             return true;
         }
-        
+
         // Count the number of edges that have not reached their maximum level yet.
         // Return false if there are too many such edges.
         let mut count = 0;
         for ce in edges {
-            if p.level() < ce.face_edge.max_level {
+            if (p.level() as i32) < ce.face_edge.max_level {
                 count += 1;
             }
-            
+
             if count > self.max_edges_per_cell {
                 return false;
             }
         }
-        
+
         // Shift the InteriorTracker focus point to the center of the current cell.
         if t.is_active && !edges.is_empty() {
             if !t.at_cell_id(p.id) {
@@ -1314,14 +1405,14 @@ impl ShapeIndex {
             t.draw_to(p.center());
             self.test_all_edges(edges, t);
         }
-        
+
         // Allocate and fill a new index cell. To get the total number of shapes we
         // need to merge the shapes associated with the intersecting edges together
         // with the shapes that happen to contain the cell center.
         let c_shape_ids = &t.shape_ids;
         let num_shapes = self.count_shapes(edges, c_shape_ids);
         let mut cell = ShapeIndexCell::new(num_shapes);
-        
+
         // To fill the index cell we merge the two sources of shapes: edge shapes
         // (those that have at least one edge that intersects this cell), and
         // containing shapes (those that contain the cell center). We keep track
@@ -1333,14 +1424,14 @@ impl ShapeIndex {
             // Advance to next value base + i
             let mut e_shape_id = i32::MAX; // Sentinel
             let mut c_shape_id = i32::MAX; // Sentinel
-            
+
             if e_next < edges.len() {
                 e_shape_id = edges[e_next].face_edge.shape_id;
             }
             if c_next_idx < c_shape_ids.len() {
                 c_shape_id = c_shape_ids[c_next_idx];
             }
-            
+
             let e_begin = e_next;
             if c_shape_id < e_shape_id {
                 // The entire cell is in the shape interior.
@@ -1364,50 +1455,49 @@ impl ShapeIndex {
                 cell.add(clipped);
             }
         }
-        
+
         // Add this cell to the map.
         let cell_id = p.id;
-        let mut cell_map = self.cell_map.lock().unwrap();
-        cell_map.insert(cell_id, cell);
-        let mut cells = self.cells.lock().unwrap();
-        cells.push(cell_id);
-        
+        let mut data = self.index_data.lock().unwrap();
+        data.cell_map.insert(cell_id, cell);
+        data.cells.push(cell_id);
+
         // Shift the tracker focus point to the exit vertex of this cell.
         if t.is_active && !edges.is_empty() {
             t.draw_to(p.exit_vertex());
             self.test_all_edges(edges, t);
             t.set_next_cell_id(p.id.next());
         }
-        
+
         true
     }
-    
+
     // test_all_edges calls the trackers testEdge on all edges from shapes that have interiors.
     fn test_all_edges(&self, edges: &[ClippedEdge], t: &mut Tracker) {
         for edge in edges {
             if edge.face_edge.has_interior {
-                t.test_edge(edge.face_edge.shape_id, edge.face_edge.edge);
+                t.test_edge(edge.face_edge.shape_id, edge.face_edge.edge.clone());
             }
         }
     }
-    
+
     // count_shapes reports the number of distinct shapes that are either associated with the
     // given edges, or that are currently stored in the InteriorTracker.
     fn count_shapes(&self, edges: &[ClippedEdge], shape_ids: &[i32]) -> usize {
         let mut count = 0;
         let mut last_shape_id = -1;
-        
+
         // Index of the current element in the shape_ids list.
         let mut shape_id_idx = 0;
-        
+
         for edge in edges {
             if edge.face_edge.shape_id == last_shape_id {
                 continue;
             }
-            
+
             count += 1;
             last_shape_id = edge.face_edge.shape_id;
-            
+
             // Skip over any containing shapes up to and including this one,
             // updating count as appropriate.
             while shape_id_idx < shape_ids.len() {
@@ -1421,17 +1511,23 @@ impl ShapeIndex {
                 shape_id_idx += 1;
             }
         }
-        
+
         // Count any remaining containing shapes.
         count += shape_ids.len() - shape_id_idx;
         count
     }
-    
+
     // absorb_index_cell absorbs an index cell by transferring its contents to edges
     // and/or "tracker", and then delete this cell from the index. If edges includes
     // any edges that are being removed, this method also updates their
     // InteriorTracker state to correspond to the exit vertex of this cell.
-    fn absorb_index_cell(&self, p: &crate::s2::padded_cell::PaddedCell, iter: &mut ShapeIndexIterator, edges: &[ClippedEdge], t: &mut Tracker) {
+    fn absorb_index_cell(
+        &self,
+        p: &crate::s2::padded_cell::PaddedCell,
+        iter: &mut ShapeIndexIterator,
+        edges: &[ClippedEdge],
+        t: &mut Tracker,
+    ) {
         // When we absorb a cell, we erase all the edges that are being removed.
         // However when we are finished with this cell, we want to restore the state
         // of those edges (since that is how we find all the index cells that need
@@ -1443,7 +1539,10 @@ impl ShapeIndex {
         // correspond to the exit vertex of this cell, and then save the
         // InteriorTracker state. This state will be restored by UpdateEdges when
         // it is finished processing the contents of this cell.
-        if t.is_active && !edges.is_empty() && self.is_shape_being_removed(edges[0].face_edge.shape_id) {
+        if t.is_active
+            && !edges.is_empty()
+            && self.is_shape_being_removed(edges[0].face_edge.shape_id)
+        {
             // We probably need to update the tracker. ("Probably" because
             // it's possible that all shapes being removed do not have interiors.)
             if !t.at_cell_id(p.id) {
@@ -1457,22 +1556,25 @@ impl ShapeIndex {
                     break; // All shapes being removed come first.
                 }
                 if fe.has_interior {
-                    t.test_edge(fe.shape_id, fe.edge);
+                    t.test_edge(fe.shape_id, fe.edge.clone());
                 }
             }
         }
-        
+
         // Save the state of the edges being removed, so that it can be restored
         // when we are finished processing this cell and its children. We don't
         // need to save the state of the edges being added because they aren't being
         // removed from "edges" and will therefore be updated normally as we visit
         // this cell and its children.
-        t.save_and_clear_state_before(self.pending_additions_pos);
-        
+
+        // binding reading
+
+        t.save_and_clear_state_before(self.index_data.lock().unwrap().pending_additions_pos);
+
         // Create a faceEdge for each edge in this cell that isn't being removed.
         let mut face_edges = Vec::new();
         let mut tracker_moved = false;
-        
+
         if let Some(cell) = iter.index_cell() {
             for clipped in &cell.shapes {
                 let shape_id = clipped.shape_id;
@@ -1481,9 +1583,9 @@ impl ShapeIndex {
                     continue; // This shape is being removed.
                 }
                 let shape = shape.unwrap();
-                
+
                 let num_clipped = clipped.num_edges();
-                
+
                 // If this shape has an interior, start tracking whether we are inside the
                 // shape. updateEdges wants to know whether the entry vertex of this
                 // cell is inside the shape, but we only know whether the center of the
@@ -1498,7 +1600,7 @@ impl ShapeIndex {
                     b: R2Point::new(0.0, 0.0),
                     edge: Edge::default(),
                 };
-                
+
                 if edge.has_interior {
                     t.add_shape(shape_id, clipped.contains_center);
                     // There might not be any edges in this entire cell (i.e., it might be
@@ -1511,23 +1613,23 @@ impl ShapeIndex {
                         tracker_moved = true;
                     }
                 }
-                
+
                 for i in 0..num_clipped {
-                    let edge_id = clipped.edges[i as usize];
+                    let edge_id = clipped.edges[i];
                     edge.edge_id = edge_id;
-                    edge.edge = shape.edge(edge_id as usize);
-                    edge.max_level = max_level_for_edge(edge.edge);
+                    edge.edge = shape.edge(edge_id as i64);
+                    edge.max_level = max_level_for_edge(edge.edge.clone());
                     if edge.has_interior {
-                        t.test_edge(shape_id, edge.edge);
+                        t.test_edge(shape_id, edge.edge.clone());
                     }
-                    
+
                     let clip_result = crate::s2::edge_clipping::clip_to_padded_face(
                         edge.edge.v0,
                         edge.edge.v1,
                         p.id.face(),
                         CELL_PADDING,
                     );
-                    
+
                     if let Some((a, b)) = clip_result {
                         edge.a = a;
                         edge.b = b;
@@ -1536,17 +1638,26 @@ impl ShapeIndex {
                 }
             }
         }
-        
+
         // TODO: Complete the implementation of this method
-        
+
         // Delete this cell from the index.
-        let mut cell_map = self.cell_map.lock().unwrap();
-        cell_map.remove(&p.id);
-        // TODO: Also remove from cells vector
+        let mut data = self.index_data.lock().unwrap();
+        data.cell_map.remove(&p.id);
+
+        // Remove this cell from the cells vector
+        if let Some(pos) = data.cells.iter().position(|&id| id == p.id) {
+            data.cells.remove(pos);
+        }
     }
-    
+
     // remove_shape_internal does the actual work for removing a given shape from the index.
-    fn remove_shape_internal(&self, removed: &RemovedShape, all_edges: &mut [Vec<FaceEdge>], t: &mut Tracker) {
+    fn remove_shape_internal(
+        &self,
+        removed: &RemovedShape,
+        all_edges: &mut [Vec<FaceEdge>],
+        t: &mut Tracker,
+    ) {
         let face_edge = FaceEdge {
             shape_id: removed.shape_id,
             edge_id: 0,
@@ -1556,30 +1667,41 @@ impl ShapeIndex {
             b: R2Point::new(0.0, 0.0),
             edge: Edge::default(),
         };
-        
+
         if face_edge.has_interior {
             t.add_shape(removed.shape_id, removed.contains_tracker_origin);
         }
-        
+
         for (e_id, edge) in removed.edges.iter().enumerate() {
             let mut fe = face_edge.clone();
             fe.edge_id = e_id as i32;
-            fe.edge = *edge;
-            fe.max_level = max_level_for_edge(fe.edge);
+            fe.edge = edge.clone();
+            fe.max_level = max_level_for_edge(fe.edge.clone());
             self.add_face_edge(fe, all_edges);
         }
     }
-    
+
     // Implement other helper methods as needed for the shape index implementation
-    
-    // max_level_for_edge reports the maximum level for a given edge.
-    fn max_level_for_edge(&self, edge: Edge) -> i32 {
-        // Compute the maximum cell size for which this edge is considered long.
-        // The calculation does not need to be perfectly accurate, so we use Norm
-        // rather than Angle for speed.
-        let cell_size = edge.v0.sub(edge.v1.vector()).norm() * CELL_SIZE_TO_LONG_EDGE_RATIO;
-        // Now return the first level encountered during subdivision where the
-        // average cell size is at most cellSize.
-        crate::s2::metric::avg_edge_metric().min_level(cell_size)
+}
+
+// max_level_for_edge reports the maximum level for a given edge.
+fn max_level_for_edge(edge: Edge) -> i32 {
+    // Compute the maximum cell size for which this edge is considered long.
+    // The calculation does not need to be perfectly accurate, so we use Norm
+    // rather than Angle for speed.
+    let cell_size = edge.v0.sub(Point::from(edge.v1.0)).norm() * CELL_SIZE_TO_LONG_EDGE_RATIO;
+    // Now return the first level encountered during subdivision where the
+    // average cell size is at most cellSize.
+    AVG_EDGEMETRIC.min_level(cell_size) as i32
+}
+
+// contains_brute_force determines if the shape contains the given point using a brute force approach.
+// This is used for point-in-polygon testing when initializing the Tracker.
+fn contains_brute_force(shape: &dyn Shape, point: Point) -> bool {
+    // If the shape doesn't have an interior, it cannot contain any points
+    if shape.dimension() != 2 {
+        return false;
     }
+
+    todo!()
 }

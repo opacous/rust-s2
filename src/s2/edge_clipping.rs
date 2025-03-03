@@ -26,6 +26,7 @@ limitations under the License.
 // These functions can be used to efficiently find the set of CellIDs that
 // are intersected by a geodesic edge (e.g., see crossing_edge_query).
 use crate::consts::*;
+use crate::error::{S2Error, S2Result};
 use crate::point::Point;
 use crate::r1;
 use crate::r2;
@@ -79,7 +80,11 @@ const INTERSECT_RECT_ERROR_UV_DIST: f64 = 3.0 * std::f64::consts::SQRT_2 * DBL_E
 /// This method guarantees that the clipped vertices lie within the [-1,1]x[-1,1]
 /// cube face rectangle and are within faceClipErrorUVDist of the line AB, but
 /// the results may differ from those produced by FaceSegments.
-pub fn clip_to_face(a: Point, b: Point, face: u8) -> (r2::point::Point, r2::point::Point, bool) {
+pub fn clip_to_face(
+    a: Point,
+    b: Point,
+    face: u8,
+) -> Option<(r2::point::Point, r2::point::Point)> {
     clip_to_padded_face(a, b, face, 0.0)
 }
 
@@ -92,16 +97,15 @@ pub fn clip_to_padded_face(
     b: Point,
     f: u8,
     padding: f64,
-) -> (r2::point::Point, r2::point::Point, bool) {
+) -> Option<(r2::point::Point, r2::point::Point)> {
     // Fast path: both endpoints are on the given face
     if stuv::face(&a.0) == f && stuv::face(&b.0) == f {
         let (au, av) = stuv::valid_face_xyz_to_uv(f, &a.0);
         let (bu, bv) = stuv::valid_face_xyz_to_uv(f, &a.0);
-        return (
+        return Some((
             r2::point::Point { x: au, y: av },
             r2::point::Point { x: bu, y: bv },
-            true,
-        );
+        ));
     }
 
     // Convert everything into the (u,v,w) coordinates of the given face. Note
@@ -127,11 +131,10 @@ pub fn clip_to_padded_face(
         z: norm_uvw.0.z,
     });
     if !scaled_n.intersects_face() {
-        return (
+        return Some((
             r2::point::Point { x: 0.0, y: 0.0 },
             r2::point::Point { x: 0.0, y: 0.0 },
-            false,
-        );
+        ));
     }
     let ldexp = |x: f64, exp: f64| -> f64 { x * (exp.exp2() as f64) };
 
@@ -156,7 +159,7 @@ pub fn clip_to_padded_face(
     let (a_uv, a_score) = clip_destination(b_uvw, a_uvw, scaled_n * -1_f64, b_tan, a_tan, scale_uv);
     let (b_uv, b_score) = clip_destination(a_uvw, b_uvw, scaled_n * -1_f64, a_tan, b_tan, scale_uv);
 
-    (a_uv, b_uv, a_score + b_score < 3)
+    Some((a_uv, b_uv))
 }
 
 /// clip_edge returns the portion of the edge defined by AB that is contained by the
@@ -470,7 +473,7 @@ fn clip_bound_axis(
         // narrow the intervals lower bound to the clip bound
         bound0.lo = clip.lo;
         let (bound1, updated) =
-            update_endpoint(bound1, neg_slope, interpolate(clip.lo, a0, b0, a1, b1));
+            update_endpoint(bound1, neg_slope, interpolate_f64(clip.lo, a0, b0, a1, b1));
         if !updated {
             return (bound0, bound1, false);
         }
@@ -484,7 +487,7 @@ fn clip_bound_axis(
         // narrow the intervals upper bound to the clip bound.
         bound0.hi = clip.hi;
         let (bound1, updated) =
-            update_endpoint(bound1, !neg_slope, interpolate(clip.hi, a0, b0, a1, b1));
+            update_endpoint(bound1, !neg_slope, interpolate_f64(clip.hi, a0, b0, a1, b1));
         if !updated {
             return (bound0, bound1, false);
         }
@@ -574,7 +577,7 @@ fn clip_edge_bound(
 ///  - If x == b, then x1 = b1 (exactly).
 ///  - If a <= x <= b, then a1 <= x1 <= b1 (even if a1 == b1).
 /// This requires a != b.
-fn interpolate(x: f64, a: f64, b: f64, a1: f64, b1: f64) -> f64 {
+pub fn interpolate_f64(x: f64, a: f64, b: f64, a1: f64, b1: f64) -> f64 {
     if (a - x).abs() <= (b - x).abs() {
         return a1 + (b1 - a1) * (x - a) / (b - a);
     }

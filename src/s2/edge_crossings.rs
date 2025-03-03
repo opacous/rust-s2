@@ -20,7 +20,7 @@ use crate::consts::{DBL_EPSILON, EPSILON};
 use crate::point::{ordered_ccw, Point};
 use crate::r3::precisevector::PreciseVector;
 use crate::r3::vector::*;
-use crate::s2::edge_crosser::EdgeCrosser;
+pub(crate) use crate::s2::edge_crosser::EdgeCrosser;
 
 // intersectionError can be set somewhat arbitrarily, because the algorithm
 // uses more precision if necessary in order to achieve the specified error.

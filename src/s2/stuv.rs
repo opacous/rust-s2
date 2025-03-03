@@ -116,8 +116,7 @@ pub(crate) fn face_xyz_to_uvw(face: u8, p: &Point) -> Point {
     }
 }
 
-#[cfg(test)]
-fn face_siti_to_xyz(face: u8, si: u64, ti: u64) -> Point {
+pub fn face_siti_to_xyz(face: u8, si: u64, ti: u64) -> Point {
     Point(face_uv_to_xyz(
         face,
         st_to_uv(siti_to_st(si)),

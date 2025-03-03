@@ -31,3 +31,6 @@ pub mod shape_index;
 pub mod shape_index_region;
 pub mod lax_loop;
 pub mod polygon;
+pub mod crossing_edge_query;
+pub mod padded_cell;
+pub mod error;

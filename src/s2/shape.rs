@@ -232,3 +232,23 @@ pub trait Shape {
         self.num_edges() == 0 && self.dimension() == 2 && self.num_chains() > 0
     }
 }
+
+impl PartialEq for dyn Shape {
+    fn eq(&self, other: &Self) -> bool {
+        todo!()
+    }
+}
+
+impl Eq for dyn Shape {}
+
+impl PartialOrd for dyn Shape {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        todo!()
+    }
+}
+
+impl Ord for dyn Shape {
+    fn cmp(&self, other: &Self) -> Ordering {
+        todo!()
+    }
+}
