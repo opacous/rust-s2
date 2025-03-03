@@ -29,6 +29,14 @@ pub struct Vector {
     pub z: f64,
 }
 
+impl Hash for Vector {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.x.to_bits().hash(state);
+        self.y.to_bits().hash(state);
+        self.z.to_bits().hash(state);
+    }
+}
+
 impl std::fmt::Debug for Vector {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "({:0.24}, {:0.24}, {:0.24})", self.x, self.y, self.z)
@@ -128,7 +136,7 @@ impl std::ops::Mul<i64> for Vector {
 
 
 use std::cmp::*;
-
+use std::hash::{Hash, Hasher};
 
 impl Eq for Vector {}
 

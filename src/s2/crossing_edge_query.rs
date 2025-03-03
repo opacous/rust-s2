@@ -7,8 +7,8 @@ use crate::s2::edge_crossings::Crossing;
 use crate::s2::point::Point;
 use crate::s2::shape::Shape;
 use crate::s2::shape_index::{CellRelation, ShapeIndex, ShapeIndexCell, ShapeIndexIterator};
-use crate::shape::Edge;
-use std::collections::{BTreeMap, HashSet};
+use crate::shape::{Edge, ShapeType};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// CrossingType specifies the types of edge crossings to be reported.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -23,7 +23,7 @@ pub enum CrossingType {
 }
 
 /// EdgeMap stores a sorted set of edge ids for each shape.
-pub type EdgeMap<'a> = BTreeMap<&'a dyn Shape, Vec<i32>>;
+pub type EdgeMap = HashMap<ShapeType, Vec<i32>>;
 
 /// CrossingEdgeQuery is used to find the Edge IDs of Shapes that are crossed by
 /// a given edge(s).
@@ -65,7 +65,7 @@ impl<'a> CrossingEdgeQuery<'a> {
         &mut self,
         a: Point,
         b: Point,
-        shape: &'a dyn Shape,
+        shape: &ShapeType,
         cross_type: CrossingType,
     ) -> Vec<i32> {
         let mut edges = self.candidates(a, b, shape);
@@ -104,12 +104,7 @@ impl<'a> CrossingEdgeQuery<'a> {
     ///
     /// The edges are returned as a mapping from shape to the edges of that shape
     /// that intersect AB. Every returned shape has at least one crossing edge.
-    pub fn crossings_edge_map(
-        &mut self,
-        a: Point,
-        b: Point,
-        cross_type: CrossingType,
-    ) -> EdgeMap<'a> {
+    pub fn crossings_edge_map(&mut self, a: Point, b: Point, cross_type: CrossingType) -> EdgeMap {
         let mut edge_map = self.candidates_edge_map(a, b);
         if edge_map.is_empty() {
             return edge_map;
@@ -150,7 +145,7 @@ impl<'a> CrossingEdgeQuery<'a> {
 
     /// Returns a superset of the edges of the given shape that intersect
     /// the edge AB.
-    pub fn candidates(&mut self, a: Point, b: Point, shape: &'a dyn Shape) -> Vec<i32> {
+    pub fn candidates(&mut self, a: Point, b: Point, shape: &ShapeType) -> Vec<i32> {
         // For small loops it is faster to use brute force. The threshold below was
         // determined using benchmarks.
         const MAX_BRUTE_FORCE_EDGES: usize = 27;
@@ -185,8 +180,8 @@ impl<'a> CrossingEdgeQuery<'a> {
 
     /// Returns a map from shapes to a superset of edges for that shape
     /// that intersect the edge AB.
-    pub fn candidates_edge_map(&mut self, a: Point, b: Point) -> EdgeMap<'a> {
-        let mut edge_map: EdgeMap<'a> = BTreeMap::new();
+    pub fn candidates_edge_map(&mut self, a: Point, b: Point) -> EdgeMap {
+        let shape = self.index.shape(0).as_ref().cloned();
 
         // If there are only a few edges then it's faster to use brute force. We
         // only bother with this optimization when there is a single shape.
@@ -194,13 +189,17 @@ impl<'a> CrossingEdgeQuery<'a> {
             // Typically this method is called many times, so it is worth checking
             // whether the edge map is empty or already consists of a single entry for
             // this shape, and skip clearing edge map in that case.
-            let shape = self.index.shape(0).unwrap();
+            let shape = self.index.shape(0).as_ref().cloned();
+            let inner_shape = shape.unwrap();
 
             // Note that we leave the edge map non-empty even if there are no candidates
             // (i.e., there is a single entry with an empty set of edges).
-            edge_map.insert(*shape, self.candidates(a, b, &*shape));
+            let mut edge_map: EdgeMap = HashMap::new();
+            edge_map.insert(inner_shape.clone(), self.candidates(a, b, &inner_shape));
             return edge_map;
         }
+
+        let mut edge_map: EdgeMap = HashMap::new();
 
         // Compute the set of index cells intersected by the query edge.
         self.get_cells_for_edge(a, b);
@@ -457,10 +456,11 @@ impl<'a> CrossingEdgeQuery<'a> {
 mod tests {
     use super::*;
     use crate::s1::angle::Angle;
-    use crate::s2::cap::Cap;
-    use crate::s2::cell::Cell;
-    use crate::s2::cellid::MAX_LEVEL;
-    use crate::s2::random::sample_point_from_cap;
+    use crate::s2::edge_crosser::next_after;
+    use crate::s2::random::{one_in, rng};
+    use crate::s2::test_util::random_uniform_float64;
+    use crate::shape::{Chain, ChainPosition, ReferencePoint};
+    use rand::thread_rng;
     use std::f64;
 
     // Struct for testing edge queries
@@ -483,16 +483,38 @@ mod tests {
             self.edges.len() as i64
         }
 
-        fn edge(&self, e: usize) -> Edge {
-            self.edges[e]
-        }
-
-        fn dimension(&self) -> i32 {
-            1 // Dimension of polylines
+        fn edge(&self, e: i64) -> Edge {
+            self.edges[e as usize].clone()
         }
 
         fn reference_point(&self) -> crate::shape::ReferencePoint {
-            crate::shape::ReferencePoint::contained(false)
+            ReferencePoint::origin(false)
+        }
+
+        fn num_chains(&self) -> i64 {
+            self.edges.len() as i64
+        }
+
+        fn chain(&self, chain_id: i64) -> Chain {
+            Chain {
+                start: chain_id,
+                length: 1,
+            }
+        }
+
+        fn chain_edge(&self, chain_id: i64, offset: i64) -> Edge {
+            self.edges[chain_id as usize].clone()
+        }
+
+        fn chain_position(&self, edge_id: i64) -> ChainPosition {
+            ChainPosition {
+                chain_id: edge_id,
+                offset: 0,
+            }
+        }
+
+        fn dimension(&self) -> i64 {
+            1 // Dimension of polylines
         }
     }
 
@@ -502,13 +524,14 @@ mod tests {
     fn generate_perturbed_sub_edges(a: Point, b: Point, count: usize) -> Vec<Edge> {
         let mut edges = Vec::with_capacity(count);
 
-        let a = Point::normalize(a);
-        let b = Point::normalize(b);
+        let a = a.normalize();
+        let b = b.normalize();
 
-        let length0 = a.distance(b);
+        let length0 = a.distance(&b);
         for _ in 0..count {
-            let length = length0 * Angle::from_radians(f64::powf(1e-15, random_float64()));
-            let offset = (length0 - length) * Angle::from_radians(random_float64());
+            let length =
+                length0 * Angle(f64::powf(1e-15, random_uniform_float64(0., f64::INFINITY)));
+            let offset = (length0 - length) * Angle(random_uniform_float64(0., f64::INFINITY));
             edges.push(Edge {
                 v0: perturb_at_distance(offset, a, b),
                 v1: perturb_at_distance(offset + length, a, b),
@@ -519,26 +542,26 @@ mod tests {
     }
 
     fn perturb_at_distance(distance: Angle, a0: Point, b0: Point) -> Point {
-        let mut x = crate::s2::edgeutil::interpolate_at_distance(distance, a0, b0);
+        let mut x = crate::s2::edgeutil::interpolate_at_distance(&distance, &a0, &b0);
+        let mut r = thread_rng();
+        if one_in(&mut r, 2) {
+            if one_in(&mut r, 2) {
+                x.0.x = next_after(x.0.x, 1.0);
+            } else {
+                x.0.x = next_after(x.0.x, -1.0);
+            }
+            if one_in(&mut r, 2) {
+                x.0.y = next_after(x.0.y, 1.0);
+            } else {
+                x.0.y = next_after(x.0.y, -1.0);
+            }
+            if one_in(&mut r, 2) {
+                x.0.z = next_after(x.0.z, 1.0);
+            } else {
+                x.0.z = next_after(x.0.z, -1.0);
+            }
 
-        if one_in(2) {
-            if one_in(2) {
-                x.x = f64::next_up(x.x);
-            } else {
-                x.x = f64::next_down(x.x);
-            }
-            if one_in(2) {
-                x.y = f64::next_up(x.y);
-            } else {
-                x.y = f64::next_down(x.y);
-            }
-            if one_in(2) {
-                x.z = f64::next_up(x.z);
-            } else {
-                x.z = f64::next_down(x.z);
-            }
-
-            x = Point::normalize(x);
+            x = x.normalize();
         }
 
         x
@@ -566,5 +589,5 @@ mod tests {
         }
     }
 
-    // Additional tests can be added here
+    //TODO: Additional tests can be added here - See the remaining tests in `crossing_edge_query_test.go`
 }

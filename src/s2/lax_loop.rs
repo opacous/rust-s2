@@ -25,7 +25,7 @@ use crate::s2;
 ///
 /// Note that LaxLoop is faster to initialize and more compact than
 /// Loop, but does not support the same operations as Loop.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub struct LaxLoop {
     pub vertices: Vec<Point>,
 }
@@ -38,9 +38,9 @@ impl LaxLoop {
 
     /// Creates a LaxLoop from the given Loop, copying its points.
     /// NOTE: This will be implemented once we port Loop to Rust
-    pub fn from_loop(_loop: &Loop) -> Self {
-        unimplemented!("Requires Loop implementation")
-    }
+    // pub fn from_loop(_loop: &Loop) -> Self {
+    //     unimplemented!("Requires Loop implementation")
+    // }
 
     /// Returns the vertex at the specified index.
     pub fn vertex(&self, i: usize) -> Point {
@@ -59,10 +59,6 @@ impl Shape for LaxLoop {
             v0: self.vertices[e as usize],
             v1: self.vertices[e1 as usize],
         }
-    }
-
-    fn dimension(&self) -> i64 {
-        2 // Polygons have dimension 2
     }
 
     fn reference_point(&self) -> ReferencePoint {
@@ -100,10 +96,11 @@ impl Shape for LaxLoop {
             offset: edge_id,
         }
     }
-}
 
-// Placeholder for Loop struct, which will be implemented separately
-pub struct Loop;
+    fn dimension(&self) -> i64 {
+        2 // Polygons have dimension 2
+    }
+}
 
 #[cfg(test)]
 mod tests {

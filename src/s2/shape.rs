@@ -10,10 +10,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::convert::TryInto;
 use crate::r2::point::Point;
 use crate::s2::point::Point as s2Point;
 use std::cmp::*;
-
+use crate::lax_loop::{LaxLoop};
 // Edge represents a geodesic edge consisting of two vertices. Zero-length edges are
 // allowed, and can be used to represent points.
 
@@ -149,6 +150,7 @@ impl ReferencePoint {
 /// numbering (edge ID) or within a particular chain. The global numbering is
 /// sufficient for most purposes, but the chain representation is useful for
 /// certain algorithms such as intersection (see BooleanOperation).
+#[enum_delegate::register]
 pub trait Shape {
     /// num_edges returns the number of edges in this shape.
     fn num_edges(&self) -> i64;
@@ -233,22 +235,33 @@ pub trait Shape {
     }
 }
 
-impl PartialEq for dyn Shape {
+impl PartialEq for ShapeType {
     fn eq(&self, other: &Self) -> bool {
         todo!()
     }
 }
 
-impl Eq for dyn Shape {}
+impl Eq for ShapeType {}
 
-impl PartialOrd for dyn Shape {
+impl PartialOrd for ShapeType {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         todo!()
     }
 }
 
-impl Ord for dyn Shape {
+impl Ord for ShapeType {
     fn cmp(&self, other: &Self) -> Ordering {
         todo!()
     }
+}
+
+
+
+#[enum_delegate::implement(Shape)]
+#[derive(Debug, Clone, Hash)]
+pub enum ShapeType {
+    // Loop(Loop),
+    LaxLoop(LaxLoop),
+    // Polyline(()),
+    // Polygon(()),
 }

@@ -10,12 +10,12 @@ use crate::s2::edge_crosser::EdgeCrosser;
 use crate::s2::point::Point;
 use crate::s2::shape_index_region::{ContainsPointQuery, ShapeIndexRegion, VertexModel};
 use crate::s2::stuv::{face, face_uv_to_xyz, valid_face_xyz_to_uv};
-use crate::shape::{Edge, Shape};
+use crate::shape::{Edge, Shape, ShapeType};
 use crate::shape_index::Status::Fresh;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ops::{Deref, Sub};
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 // edgeClipErrorUVCoord is the maximum error in a u- or v-coordinate
 // compared to the exact result, assuming that the points A and B are in
@@ -299,9 +299,14 @@ impl<'a> ShapeIndexIterator<'a> {
 
     // end positions the iterator at the end of the index.
     pub fn end(&mut self) {
-        let data = self.index.index_data.lock().unwrap();
-        self.position = data.cells.len();
-        &self.refresh();
+        {
+            // Get a lock on the index data to get the length
+            let data = self.index.index_data.read().unwrap();
+            self.position = data.cells.len();
+        }
+
+        // Use refresh to update the iterator state, which handles lifetimes correctly
+        self.refresh();
     }
 
     // done reports if the iterator is positioned at or after the last index cell.
@@ -311,12 +316,28 @@ impl<'a> ShapeIndexIterator<'a> {
 
     // refresh updates the stored internal iterator values.
     fn refresh(&mut self) {
-        // We need to manually extract and process data to avoid lifetime issues
-        let data = self.index.index_data.lock().unwrap();
+        // Get a copy of the current position
+        let pos = self.position;
+        let index = self.index;
 
-        if self.position < data.cells.len() {
-            self.id = data.cells[self.position];
-            self.cell = data.cell_map.get(&self.id).clone();
+        // Lock the index data
+        let data_guard = index.index_data.read().unwrap();
+
+        if pos < data_guard.cells.len() {
+            // Get the cell ID at this position
+            self.id = data_guard.cells[pos];
+
+            // For cells, we'll need to get a reference with the right lifetime
+            // Clone the cell if it exists to avoid lifetime issues
+            if let Some(cell) = data_guard.cell_map.get(&self.id) {
+                // Release the lock before setting the cell reference
+                drop(data_guard);
+
+                // Re-acquire the lock and get a properly lifetime'd reference
+                self.cell = self.index.get_cell_ref(self.id);
+            } else {
+                self.cell = None;
+            }
         } else {
             self.id = CellID::sentinel();
             self.cell = None;
@@ -327,19 +348,16 @@ impl<'a> ShapeIndexIterator<'a> {
     // end of the index if no such cell exists.
     pub fn seek(&mut self, target: CellID) {
         // Get a lock on the index data to access cells
-        let data = self.index.index_data.lock().unwrap();
+        let data = self.index.index_data.read().unwrap();
 
         // Using binary search to find the position
         self.position = data.cells.binary_search(&target).unwrap_or_else(|pos| pos);
 
-        // Update the iterator state with the lock still held
-        if self.position < data.cells.len() {
-            self.id = data.cells[self.position];
-            self.cell = data.cell_map.get(&self.id);
-        } else {
-            self.id = CellID::sentinel();
-            self.cell = None;
-        }
+        // Release the lock
+        drop(data);
+
+        // Use refresh to update the iterator state, which handles lifetimes correctly
+        self.refresh();
     }
 
     // locate_point positions the iterator at the cell that contains the given Point.
@@ -613,24 +631,21 @@ pub enum Status {
 //	// Now you can use a CrossingEdgeQuery or ClosestEdgeQuery here.
 // #[derive(Debug)]
 pub struct ShapeIndex {
-    // Mutex protected data
-    index_data: Mutex<ShapeIndexData>,
+    // RwLock protected data
+    index_data: Arc<RwLock<ShapeIndexData>>,
 
     // The current status of the index; accessed atomically.
-    status: Mutex<Status>,
+    status: Arc<RwLock<Status>>,
 
     // The maximum number of edges per cell.
     max_edges_per_cell: i32,
-
-    // This mutex protects access to the internal state during updates
-    mu: Mutex<()>,
 }
 
 // ShapeIndexData contains all the data fields for the shape index.
 // These fields are protected by a mutex in the ShapeIndex struct.
 struct ShapeIndexData {
     // shapes is a map of shape ID to shape.
-    shapes: BTreeMap<i32, Box<dyn Shape>>,
+    shapes: HashMap<i32, ShapeType>,
 
     // nextID tracks the next ID to hand out. IDs are not reused when shapes
     // are removed from the index.
@@ -656,17 +671,16 @@ impl ShapeIndex {
     // new creates a new ShapeIndex.
     pub fn new() -> Self {
         ShapeIndex {
-            index_data: Mutex::new(ShapeIndexData {
-                shapes: BTreeMap::new(),
+            index_data: Arc::from(RwLock::new(ShapeIndexData {
+                shapes: HashMap::new(),
                 cell_map: BTreeMap::new(),
                 cells: Vec::new(),
                 next_id: 0,
                 pending_additions_pos: 0,
                 pending_removals: Vec::new(),
-            }),
+            })),
             max_edges_per_cell: 10,
-            status: Mutex::new(Fresh),
-            mu: Mutex::new(()),
+            status: Arc::from(RwLock::new(Fresh)),
         }
     }
 
@@ -703,31 +717,31 @@ impl ShapeIndex {
 
     // len reports the number of Shapes in this index.
     pub fn len(&self) -> usize {
-        let data = self.index_data.lock().unwrap();
+        let data = self.index_data.read().unwrap();
         data.shapes.len()
     }
 
     // is_empty reports whether this index is empty (has no shapes).
     pub fn is_empty(&self) -> bool {
-        let data = self.index_data.lock().unwrap();
+        let data = self.index_data.read().unwrap();
         data.shapes.is_empty()
     }
 
     // reset resets the index to its original state.
     pub fn reset(&mut self) {
-        let mut data = self.index_data.lock().unwrap();
+        let mut data = self.index_data.write().unwrap();
         data.shapes.clear();
         data.next_id = 0;
         data.cell_map.clear();
         data.cells.clear();
 
         // Reset the status to Fresh
-        *self.status.lock().unwrap() = Status::Fresh;
+        *self.status.write().unwrap() = Status::Fresh;
     }
 
     // num_edges returns the number of edges in this index.
     pub fn num_edges(&self) -> usize {
-        let data = self.index_data.lock().unwrap();
+        let data = self.index_data.read().unwrap();
         data.shapes
             .values()
             .map(|shape| shape.num_edges() as usize)
@@ -738,7 +752,7 @@ impl ShapeIndex {
     // limit. If the limit is encountered, the current running total is returned,
     // which may be more than the limit.
     pub fn num_edges_up_to(&self, limit: usize) -> usize {
-        let data = self.index_data.lock().unwrap();
+        let data = self.index_data.read().unwrap();
         let mut num_edges = 0;
         // We choose to iterate over the shapes in order to match the counting
         // up behavior in C++ and for test compatibility instead of using a
@@ -756,15 +770,16 @@ impl ShapeIndex {
     }
 
     // shape returns the shape with the given ID, or None if the shape has been removed from the index.
-    pub fn shape(&self, id: i32) -> Option<Box<dyn Shape>> {
-        let data = self.index_data.lock().unwrap();
+    pub fn shape(&self, id: i32) -> Option<ShapeType> {
+        let data = self.index_data.read().unwrap();
         // We need to clone the shape to have ownership and avoid lifetime issues
-        data.shapes.get(&id).map(|s| {
-            let shape_ref = s;
-            // Assuming the Shape trait has a clone() method
-            let cloned_shape = shape_ref.clone().deref();
-            Box::new(cloned_shape)
-        })
+        if let Some(s) = data.shapes.get(&id) {
+            // Clone the box to get a new one with the same shape
+            // let shape_of_inner = s.clone();
+            Some(s.clone())
+        } else {
+            None
+        }
     }
 
     // id_for_shape returns the id of the given shape in this index, or -1 if it is
@@ -774,10 +789,10 @@ impl ShapeIndex {
     // C++ allows a given S2 type (Loop, Polygon, etc) to be part of multiple indexes.
     // By having each type extend S2Shape which has an id element, they all inherit their
     // own id field rather than having to track it themselves.
-    pub fn id_for_shape(&self, shape: &dyn Shape) -> i32 {
-        let data = self.index_data.lock().unwrap();
+    pub fn id_for_shape(&self, shape: &ShapeType) -> i32 {
+        let data = self.index_data.read().unwrap();
         for (k, v) in &data.shapes {
-            if std::ptr::eq(v.as_ref() as *const dyn Shape, shape as *const dyn Shape) {
+            if std::ptr::eq(v, shape) {
                 return *k;
             }
         }
@@ -785,24 +800,24 @@ impl ShapeIndex {
     }
 
     // add adds the given shape to the index and returns the assigned ID.
-    pub fn add(&mut self, shape: Box<dyn Shape>) -> i32 {
-        let mut data = self.index_data.lock().unwrap();
+    pub fn add(&mut self, shape: &ShapeType) -> i32 {
+        let mut data = self.index_data.write().unwrap();
         let id = data.next_id;
-        data.shapes.insert(id, shape);
+        data.shapes.insert(id, shape.clone());
         data.next_id += 1;
 
         // Mark the index as stale
-        *self.status.lock().unwrap() = Status::Stale;
+        *self.status.write().unwrap() = Status::Stale;
         id
     }
 
     // remove removes the given shape from the index.
-    pub fn remove(&mut self, shape: &dyn Shape) {
+    pub fn remove(&mut self, shape: &ShapeType) {
         // The index updates itself lazily because it is much more efficient to
         // process additions and removals in batches.
         let id = self.id_for_shape(shape);
 
-        let mut data = self.index_data.lock().unwrap();
+        let mut data = self.index_data.write().unwrap();
 
         // If the shape wasn't found, it's already been removed or was not in the index.
         if !data.shapes.contains_key(&id) {
@@ -829,7 +844,7 @@ impl ShapeIndex {
         data.pending_removals.push(removed);
 
         // Mark the index as stale
-        *self.status.lock().unwrap() = Status::Stale;
+        *self.status.write().unwrap() = Status::Stale;
     }
 
     // build triggers the update of the index. Calls to Add and Release are normally
@@ -851,7 +866,7 @@ impl ShapeIndex {
     // built in a different thread. This is fine for the intended use (as an
     // efficiency hint), but it should not be used by internal methods.
     pub fn is_fresh(&self) -> bool {
-        let status_bind = self.status.lock().unwrap();
+        let status_bind = self.status.read().unwrap();
         *status_bind == Fresh
     }
 
@@ -859,14 +874,14 @@ impl ShapeIndex {
     fn is_first_update(&self) -> bool {
         // Note that it is not sufficient to check whether cellMap is empty, since
         // entries are added to it during the update process.
-        let data = self.index_data.lock().unwrap();
+        let data = self.index_data.read().unwrap();
         data.pending_additions_pos == 0
     }
 
     // is_shape_being_removed reports if the shape with the given ID is currently slated for removal.
     fn is_shape_being_removed(&self, shape_id: i32) -> bool {
         // All shape ids being removed fall below the index position of shapes being added.
-        let data = self.index_data.lock().unwrap();
+        let data = self.index_data.read().unwrap();
         shape_id < data.pending_additions_pos
     }
 
@@ -877,13 +892,11 @@ impl ShapeIndex {
         // is fresh and when updating the status to be fresh. This guarantees
         // that any thread that sees a status of fresh will also see the
         // corresponding index updates.
-        let status = *self.status.lock().unwrap();
+        let status = *self.status.read().unwrap();
         if status != Fresh {
-            let _lock = self.mu.lock().unwrap();
             self.apply_updates_internal();
-
             // Update the status to Fresh after applying updates
-            *self.status.lock().unwrap() = Fresh;
+            *self.status.write().unwrap() = Fresh;
         }
     }
 
@@ -899,7 +912,7 @@ impl ShapeIndex {
         // allEdges maps a Face to a collection of faceEdges.
         let mut all_edges: Vec<Vec<FaceEdge>> = vec![Vec::new(); 6];
 
-        let mut data = self.index_data.lock().unwrap();
+        let mut data = self.index_data.write().unwrap();
 
         for p in &data.pending_removals {
             self.remove_shape_internal(p, &mut all_edges, &mut t);
@@ -922,9 +935,9 @@ impl ShapeIndex {
     // adds the clipped edges to the set of allEdges, and starts tracking its
     // interior if necessary.
     fn add_shape_internal(&self, shape_id: i32, all_edges: &mut [Vec<FaceEdge>], t: &mut Tracker) {
-        let data = self.index_data.lock().unwrap();
+        let data = self.index_data.read().unwrap();
         let shape = match data.shapes.get(&shape_id) {
-            Some(s) => s.as_ref(),
+            Some(s) => s,
             None => return, // This shape has already been removed.
         };
 
@@ -939,7 +952,7 @@ impl ShapeIndex {
         };
 
         if face_edge.has_interior {
-            t.add_shape(shape_id, contains_brute_force(shape, t.focus()));
+            t.add_shape(shape_id, contains_brute_force(shape.clone(), t.focus()));
         }
 
         let num_edges = shape.num_edges();
@@ -1364,7 +1377,7 @@ impl ShapeIndex {
 
         if index_cell_absorbed {
             // Restore the state for any edges being removed that we are tracking.
-            t.restore_state_before(self.index_data.lock().unwrap().pending_additions_pos);
+            t.restore_state_before(self.index_data.read().unwrap().pending_additions_pos);
         }
     }
 
@@ -1458,7 +1471,7 @@ impl ShapeIndex {
 
         // Add this cell to the map.
         let cell_id = p.id;
-        let mut data = self.index_data.lock().unwrap();
+        let mut data = self.index_data.write().unwrap();
         data.cell_map.insert(cell_id, cell);
         data.cells.push(cell_id);
 
@@ -1569,7 +1582,7 @@ impl ShapeIndex {
 
         // binding reading
 
-        t.save_and_clear_state_before(self.index_data.lock().unwrap().pending_additions_pos);
+        t.save_and_clear_state_before(self.index_data.read().unwrap().pending_additions_pos);
 
         // Create a faceEdge for each edge in this cell that isn't being removed.
         let mut face_edges = Vec::new();
@@ -1642,7 +1655,7 @@ impl ShapeIndex {
         // TODO: Complete the implementation of this method
 
         // Delete this cell from the index.
-        let mut data = self.index_data.lock().unwrap();
+        let mut data = self.index_data.write().unwrap();
         data.cell_map.remove(&p.id);
 
         // Remove this cell from the cells vector
@@ -1682,6 +1695,19 @@ impl ShapeIndex {
     }
 
     // Implement other helper methods as needed for the shape index implementation
+
+    // get_cell_ref returns a properly lifetime'd reference to a cell given its ID
+    fn get_cell_ref<'a>(&self, id: CellID) -> Option<&'a ShapeIndexCell> {
+        let guard = self.index_data.read().unwrap();
+        // Clone the cell if it exists
+        if let Some(cell) = guard.cell_map.get(&id) {
+            // UNSAFE AS FUCK: We're extending the lifetime from guard to 'a 
+            // this is only valid if ShapeIndexData lives as long as ShapeIndex
+            Some(unsafe { std::mem::transmute::<&ShapeIndexCell, &'a ShapeIndexCell>(cell) })
+        } else {
+            None
+        }
+    }
 }
 
 // max_level_for_edge reports the maximum level for a given edge.
@@ -1697,11 +1723,11 @@ fn max_level_for_edge(edge: Edge) -> i32 {
 
 // contains_brute_force determines if the shape contains the given point using a brute force approach.
 // This is used for point-in-polygon testing when initializing the Tracker.
-fn contains_brute_force(shape: &dyn Shape, point: Point) -> bool {
+fn contains_brute_force(shape: ShapeType, point: Point) -> bool {
     // If the shape doesn't have an interior, it cannot contain any points
     if shape.dimension() != 2 {
         return false;
     }
 
-    todo!()
+    todo!("Contains brute force for Point in ShapeType is NOT implemented")
 }

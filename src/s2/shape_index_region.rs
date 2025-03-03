@@ -220,20 +220,20 @@ impl<'a> ShapeIndexRegion<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::convert::TryInto;
-    use crate::cellid::MAX_LEVEL;
     use super::*;
+    use crate::cellid::MAX_LEVEL;
     use crate::consts::DBL_EPSILON;
     use crate::r2;
     use crate::r2::rect::Rect as R2Rect;
+    use std::convert::TryInto;
     // use crate::r2::point::Point as R2Point;
     use crate::s2::cell::Cell;
     use crate::s2::cellid::CellID;
     use crate::s2::lax_loop::LaxLoop;
     use crate::s2::point::Point;
-    use crate::shape_index_region::ShapeIndex;
     use crate::s2::stuv::face_uv_to_xyz;
-    use crate::shape::{Chain, ChainPosition, Edge, Shape};
+    use crate::shape::{Chain, ChainPosition, Edge, Shape, ShapeType};
+    use crate::shape_index_region::ShapeIndex;
 
     // Set padding to at least twice the maximum error for reliable results.
     // TODO: Use the constants from edgeutil.rs once fully ported
@@ -259,7 +259,7 @@ mod tests {
     }
 
     // Pad a cell with the given UV padding
-    fn pad_cell(id: CellID, padding_uv: f64) -> Box<dyn Shape> {
+    fn pad_cell(id: CellID, padding_uv: f64) -> ShapeType {
         let (face, i, j, _) = id.face_ij_orientation();
 
         // In the Go code, this is uv := ijLevelToBoundUV(i, j, id.Level()).ExpandedByMargin(paddingUV)
@@ -268,12 +268,11 @@ mod tests {
 
         let mut vertices = Vec::with_capacity(4);
         for vertex in uv.vertices() {
-                let xyz = face_uv_to_xyz(face, vertex.x, vertex.y).normalize();
-                vertices.push(xyz.into()
-            );
+            let xyz = face_uv_to_xyz(face, vertex.x, vertex.y).normalize();
+            vertices.push(xyz.into());
         }
 
-        Box::new(LaxLoop::from_points(vertices))
+        LaxLoop::from_points(vertices).into()
     }
 
     // Helper function to sort CellIDs for comparison
@@ -288,7 +287,7 @@ mod tests {
 
         // Add a polygon that is slightly smaller than the cell being tested
         let mut index = ShapeIndex::new();
-        index.add(pad_cell(id, -SHAPE_INDEX_CELL_PADDING));
+        index.add(&pad_cell(id, -SHAPE_INDEX_CELL_PADDING));
 
         let cell_bound = Cell::from(&id).cap_bound();
         let index_bound = index.region().cap_bound();
@@ -319,7 +318,7 @@ mod tests {
 
         // Add a polygon that is slightly smaller than the cell being tested
         let mut index = ShapeIndex::new();
-        index.add(pad_cell(id, -SHAPE_INDEX_CELL_PADDING));
+        index.add(&pad_cell(id, -SHAPE_INDEX_CELL_PADDING));
 
         let cell_bound = Cell::from(&id).rect_bound();
         let index_bound = index.region().rect_bound();
@@ -340,7 +339,7 @@ mod tests {
 
         let mut index = ShapeIndex::new();
         for id in &have {
-            index.add(pad_cell(*id, -SHAPE_INDEX_CELL_PADDING));
+            index.add(&pad_cell(*id, -SHAPE_INDEX_CELL_PADDING));
         }
 
         let mut got = index.region().cell_union_bound();
@@ -383,9 +382,9 @@ mod tests {
         let mut index = ShapeIndex::new();
         for id in &have {
             // Add each shape 3 times to ensure that the ShapeIndex subdivides.
-            index.add(pad_cell(*id, -SHAPE_INDEX_CELL_PADDING));
-            index.add(pad_cell(*id, -SHAPE_INDEX_CELL_PADDING));
-            index.add(pad_cell(*id, -SHAPE_INDEX_CELL_PADDING));
+            index.add(&pad_cell(*id, -SHAPE_INDEX_CELL_PADDING));
+            index.add(&pad_cell(*id, -SHAPE_INDEX_CELL_PADDING));
+            index.add(&pad_cell(*id, -SHAPE_INDEX_CELL_PADDING));
         }
 
         let mut have_copy = have.clone();

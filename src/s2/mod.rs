@@ -34,3 +34,4 @@ pub mod polygon;
 pub mod crossing_edge_query;
 pub mod padded_cell;
 pub mod error;
+mod test_util;
