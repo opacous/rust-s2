@@ -630,6 +630,7 @@ pub enum Status {
 //	}
 //	// Now you can use a CrossingEdgeQuery or ClosestEdgeQuery here.
 // #[derive(Debug)]
+#[derive(Clone)]
 pub struct ShapeIndex {
     // RwLock protected data
     index_data: Arc<RwLock<ShapeIndexData>>,
