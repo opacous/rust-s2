@@ -16,7 +16,7 @@ limitations under the License.
 */
 
 use std;
-
+use std::ops::Range;
 use crate::consts::EPSILON;
 
 /// Interval represents a closed interval on ℝ.
@@ -225,6 +225,12 @@ impl std::cmp::PartialEq<Interval> for Interval {
     /// returns true iff the interval contains the same points as other.
     fn eq(&self, other: &Interval) -> bool {
         (self.lo == other.lo && self.hi == other.hi) || (self.is_empty() && other.is_empty())
+    }
+}
+
+impl From<Range<f64>> for Interval {
+    fn from(r: Range<f64>) -> Self {
+        Interval { lo: r.start, hi: r.end }
     }
 }
 
