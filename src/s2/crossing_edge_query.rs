@@ -458,9 +458,8 @@ mod tests {
     use crate::s1::angle::Angle;
     use crate::s2::edge_crosser::next_after;
     use crate::s2::random::{one_in, rng};
-    use crate::s2::test_util::random_uniform_float64;
     use crate::shape::{Chain, ChainPosition, ReferencePoint};
-    use rand::thread_rng;
+    use rand::{thread_rng, Rng};
     use std::f64;
 
     // Struct for testing edge queries
@@ -529,9 +528,12 @@ mod tests {
 
         let length0 = a.distance(&b);
         for _ in 0..count {
-            let length =
-                length0 * Angle(f64::powf(1e-15, random_uniform_float64(0., f64::INFINITY)));
-            let offset = (length0 - length) * Angle(random_uniform_float64(0., f64::INFINITY));
+            let length = length0
+                * Angle(f64::powf(
+                    1e-15,
+                    rand::thread_rng().gen_range(0.0..f64::MAX),
+                ));
+            let offset = (length0 - length) * Angle(rand::thread_rng().gen_range(0.0..f64::MAX));
             edges.push(Edge {
                 v0: perturb_at_distance(offset, a, b),
                 v1: perturb_at_distance(offset + length, a, b),
