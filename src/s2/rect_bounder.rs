@@ -264,7 +264,7 @@ impl RectBounder {
 // is a loop such that L.Contains(S), then
 //
 //   ExpandForSubregions(RectBounder(L)).Contains(RectBounder(S)).
-fn expand_for_subregions(bound: &Rect) -> Rect {
+pub fn expand_for_subregions(bound: &Rect) -> Rect {
     // Empty bounds don't need expansion.
     if bound.is_empty() {
         return bound.clone();

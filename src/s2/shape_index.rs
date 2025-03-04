@@ -77,7 +77,7 @@ pub struct ClippedShape {
     // containsCenter indicates if the center of the CellID this shape has been
     // clipped to falls inside this shape. This is false for shapes that do not
     // have an interior.
-    contains_center: bool,
+    pub(crate) contains_center: bool,
 
     // edges is the ordered set of ShapeIndex original edge IDs. Edges
     // are stored in increasing order of edge ID.
@@ -640,6 +640,12 @@ pub struct ShapeIndex {
 
     // The maximum number of edges per cell.
     max_edges_per_cell: i32,
+}
+
+impl ShapeIndex {
+    pub(crate) fn num_shapes(&self) -> _ {
+        todo!()
+    }
 }
 
 // ShapeIndexData contains all the data fields for the shape index.

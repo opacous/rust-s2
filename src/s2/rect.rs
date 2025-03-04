@@ -12,8 +12,8 @@ use crate::s2::latlng::LatLng;
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Rect {
-    pub lat: r1::interval::Interval,
-    pub lng: Interval,
+    pub lat: r1::interval::Interval, // THIS IS R1 INTERVAL
+    pub lng: Interval, // THIS IS S1 INTERVAL
 }
 
 impl std::fmt::Debug for Rect {

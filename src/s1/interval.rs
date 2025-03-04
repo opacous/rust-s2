@@ -90,6 +90,11 @@ impl Interval {
         }
     }
 
+    /// full_interval returns the full interval, [-π,π].
+    pub fn full_interval() -> Self {
+        FULL
+    }
+
     /// is_valid reports whether the interval is valid.
     pub fn is_valid(&self) -> bool {
         self.lo.abs() <= PI
