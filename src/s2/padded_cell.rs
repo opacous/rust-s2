@@ -395,7 +395,7 @@ impl PaddedCell {
             return self.id;
         }
 
-        CellID::from_face_ij(self.id.face(), i_min as i32, j_min as i32).parent(level as u64)
+        CellID::from_face_ij(self.id.face(), i_min, j_min).parent(level as u64)
     }
 }
 

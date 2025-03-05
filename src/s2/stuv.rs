@@ -431,7 +431,7 @@ mod tests {
 
                 assert_eq!(
                     ci,
-                    CellID::from_face_ij(f, (si / 2) as i32, (ti / 2) as i32).parent(level)
+                    CellID::from_face_ij(f, (si / 2) as i64, (ti / 2) as i64).parent(level)
                 );
 
                 //TODO: add by ref
@@ -466,7 +466,7 @@ mod tests {
                     assert_eq!(ti, ti_random);
                     if gotlevel >= 0 {
                         assert!(p_random.approx_eq(
-                            &CellID::from_face_ij(f, si as i32 / 2, ti as i32 / 2)
+                            &CellID::from_face_ij(f, si as i64 / 2, ti as i64 / 2)
                                 .parent(gotlevel as u64)
                                 .into()
                         ));
