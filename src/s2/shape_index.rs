@@ -643,7 +643,7 @@ pub struct ShapeIndex {
 }
 
 impl ShapeIndex {
-    pub(crate) fn num_shapes(&self) -> _ {
+    pub(crate) fn num_shapes(&self) -> usize {
         todo!()
     }
 }

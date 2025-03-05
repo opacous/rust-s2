@@ -1,6 +1,6 @@
 use std;
 
-use cgmath::{Matrix, Matrix3, Vector3};
+use cgmath::{ortho, Matrix, Matrix3, Vector3};
 
 use crate::consts::*;
 use crate::r3::vector::Vector;
@@ -208,6 +208,29 @@ impl Point {
     pub fn referenceDir(&self) -> Point {
         self.ortho()
     }
+}
+
+fn set_col(m: &mut Matrix3<f64>, col: usize, p: &Point) {
+    m[0][col] = p.0.x;
+    m[1][col] = p.0.y;
+    m[2][col] = p.0.z;
+}
+
+// getFrame returns the orthonormal frame for the given point on the unit sphere.
+pub fn get_frame(p: &Point) -> Matrix3<f64> {
+    // Given the point p on the unit sphere, extend this into a right-handed
+    // coordinate frame of unit-length column vectors m = (x,y,z).  Note that
+    // the vectors (x,y) are an orthonormal frame for the tangent space at point p,
+    // while p itself is an orthonormal frame for the normal space at p.
+    let mut m = Matrix3::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    set_col(&mut m, 2, p);
+    set_col(&mut m, 1, &p.ortho());
+
+    let m_y = m.y.clone();
+    let m_z = m.z.clone();
+
+    set_col(&mut m, 0, &Point::from(m_y.cross(m_z)));
+    m
 }
 
 // from_frame returns the coordinates of the given point in standard axis-aligned basis

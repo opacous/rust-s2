@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::cmp::Ordering;
 use crate::consts::{f64_eq, DBL_EPSILON};
-use crate::point::{ordered_ccw, regular_points_for_frame};
+use crate::point::{get_frame, ordered_ccw, regular_points_for_frame};
 use crate::r1::interval::Interval as R1Interval;
 use crate::r3::vector::Vector as R3Vector;
 use crate::rect_bounder::expand_for_subregions;
@@ -29,7 +30,6 @@ use crate::s2::edge_clipping::{
 use crate::s2::edge_crosser::EdgeCrosser;
 use crate::s2::edge_crossings::angle_contains_vertex;
 use crate::s2::point::Point;
-use crate::s2::random::frame_at_point;
 use crate::s2::rect::Rect;
 use crate::s2::rect_bounder::RectBounder;
 use crate::s2::shape::{Chain, ChainPosition, Edge, ReferencePoint, Shape, ShapeType};
@@ -41,6 +41,7 @@ use std::f64;
 use std::f64::consts::PI;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
+use std::ops::{Add, Div, Mul, Sub};
 
 pub enum OriginBound {
     OriginInside,
@@ -56,8 +57,17 @@ pub enum VertexTraversalDirection {
 impl Into<i32> for VertexTraversalDirection {
     fn into(self) -> i32 {
         match self {
-            VertexTraversalDirection::Forward => {1}
-            VertexTraversalDirection::Backward => {-1}
+            VertexTraversalDirection::Forward => 1,
+            VertexTraversalDirection::Backward => -1,
+        }
+    }
+}
+
+impl Into<f64> for VertexTraversalDirection {
+    fn into(self) -> f64 {
+        match self {
+            VertexTraversalDirection::Forward => 1.,
+            VertexTraversalDirection::Backward => -1.,
         }
     }
 }
@@ -811,12 +821,28 @@ enum CrossingTarget {
     Cross,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq)]
 enum BoundaryCondition {
     LoopContainsOtherLoop, // 1
     LoopCrossesOtherLoop,  // 0
     LoopExcludesOtherLoop, //-1
 }
 
+impl PartialEq<i32> for BoundaryCondition {
+    fn eq(&self, other: &i32) -> bool {
+        todo!()
+    }
+}
+
+impl PartialOrd<i32> for BoundaryCondition {
+    fn partial_cmp(&self, other: &i32) -> Option<Ordering> {
+        match self {
+            BoundaryCondition::LoopContainsOtherLoop => Option::from(1.cmp(other)),
+            BoundaryCondition::LoopCrossesOtherLoop => Option::from(0.cmp(other)),
+            BoundaryCondition::LoopExcludesOtherLoop => Option::from((-1i32).cmp(other)),
+        }
+    }
+}
 /// has_crossing_relation is a helper for Contains, Intersects, and CompareBoundary
 /// It checks all edges of loop A for intersection against all edges of loop B and
 /// reports if there are any that satisfy the given relation. If there is any shared
@@ -1029,26 +1055,26 @@ impl Loop {
     /// values are chosen such that the lexicographically smallest edge comes first
     /// and is in the forward direction. The result is unspecified if the loop has
     /// no vertices.
-    pub fn canonical_first_vertex(&self) -> (usize, i32) {
-        let mut first_idx = 0;
-        let mut dir = 1;
-        let n = self.vertices.len();
-
-        for i in 0..n {
-            if self.vertex(i).0 < self.vertex(first_idx).0 {
-                first_idx = i;
-            }
-        }
-
-        // 0 <= firstIdx <= n-1, so (firstIdx+n*dir) <= 2*n-1.
-        if self.vertex(first_idx + 1).0 < (self.vertex(first_idx + n - 1).0) {
-            return (first_idx, 1);
-        }
-
-        // n <= firstIdx <= 2*n-1, so (firstIdx+n*dir) >= 0.
-        first_idx += n;
-        (first_idx, -1)
-    }
+    // pub fn canonical_first_vertex(&self) -> (usize, i32) {
+    //     let mut first_idx = 0;
+    //     let mut dir = 1;
+    //     let n = self.vertices.len();
+    //
+    //     for i in 0..n {
+    //         if self.vertex(i).0 < self.vertex(first_idx).0 {
+    //             first_idx = i;
+    //         }
+    //     }
+    //
+    //     // 0 <= firstIdx <= n-1, so (firstIdx+n*dir) <= 2*n-1.
+    //     if self.vertex(first_idx + 1).0 < (self.vertex(first_idx + n - 1).0) {
+    //         return (first_idx, 1);
+    //     }
+    //
+    //     // n <= firstIdx <= 2*n-1, so (firstIdx+n*dir) >= 0.
+    //     first_idx += n;
+    //     (first_idx, -1)
+    // }
 
     /// ContainsCell reports whether this loop contains the given cell.
     /// This method assumes that the loop has been indexed.
@@ -1151,7 +1177,7 @@ impl Loop {
     /// RegularLoop creates a loop with the given number of vertices, all
     /// located on a circle of the specified radius around the given center.
     pub fn regular_loop(center: Point, radius: crate::s1::angle::Angle, n: usize) -> Self {
-        Self::regular_loop_for_frame(&frame_at_point(&mut todo!(), center), radius, n)
+        Self::regular_loop_for_frame(&get_frame(&center), radius, n)
     }
 
     /// RegularLoopForFrame creates a loop centered at the z-axis of the given
@@ -1419,6 +1445,48 @@ impl Shape for Loop {
     }
 }
 
+impl Add<VertexTraversalDirection> for usize {
+    type Output = usize;
+
+    fn add(self, rhs: VertexTraversalDirection) -> Self::Output {
+        match rhs {
+            VertexTraversalDirection::Forward => self + 1,
+            VertexTraversalDirection::Backward => self - 1,
+        }
+    }
+}
+
+impl Sub<VertexTraversalDirection> for usize {
+    type Output = usize;
+
+    fn sub(self, rhs: VertexTraversalDirection) -> Self::Output {
+        match rhs {
+            VertexTraversalDirection::Forward => self - 1,
+            VertexTraversalDirection::Backward => self + 1,
+        }
+    }
+}
+
+impl Mul<Angle> for VertexTraversalDirection {
+    type Output = Angle;
+
+    fn mul(self, rhs: Angle) -> Self::Output {
+        match self {
+            VertexTraversalDirection::Forward => rhs,
+            VertexTraversalDirection::Backward => -rhs,
+        }
+    }
+}
+
+impl PartialEq<i32> for VertexTraversalDirection {
+    fn eq(&self, other: &i32) -> bool {
+        match self {
+            VertexTraversalDirection::Forward => *other == 1,
+            VertexTraversalDirection::Backward => *other == -1,
+        }
+    }
+}
+
 // Extension to Loop implementation with normalization functions
 impl Loop {
     /// Determines if the loop is normalized, meaning its area is at most 2*pi.
@@ -1494,15 +1562,14 @@ impl Loop {
         }
 
         // 0 <= first_idx <= n-1, so (first_idx+n*dir) <= 2*n-1.
-        if self.vertex(first_idx+1).0 < (self.vertex(first_idx+n-1).0) {
-            return (first_idx, VertexTraversalDirection::Forward)
+        if self.vertex(first_idx + 1).0 < (self.vertex(first_idx + n - 1).0) {
+            return (first_idx, VertexTraversalDirection::Forward);
         }
 
         // n <= first_idx <= 2*n-1, so (first_idx+n*dir) >= 0.
         first_idx += n;
-        return (first_idx, VertexTraversalDirection::Backward)
+        return (first_idx, VertexTraversalDirection::Backward);
     }
-
 
     /// Returns the sum of the turning angles at each vertex. The return value is
     /// positive if the loop is counter-clockwise, negative if the loop is
@@ -1526,20 +1593,18 @@ impl Loop {
 
         // TODO: Implement canonical_first_vertex function
         // For now, we'll just use vertex 0 as the starting point
-        let first_idx = 0;
-        let direction = 1;
 
         let n = self.vertices.len();
+        let (mut i, direction) = self.canonical_first_vertex();
         let mut sum = self.turn_angle(
-            self.vertex((first_idx + n - direction) % n),
-            self.vertex(first_idx % n),
-            self.vertex((first_idx + direction) % n),
+            self.vertex((i + n - direction) % n),
+            self.vertex(i % n),
+            self.vertex((i + direction) % n),
         );
 
         // Using Kahan summation for better numerical stability
         let mut compensation = 0.0;
         let mut remaining = n - 1;
-        let mut i = first_idx;
 
         while remaining > 0 {
             i = (i + direction) % n;
@@ -1551,13 +1616,17 @@ impl Loop {
             let old_sum = sum;
             let corrected_angle = angle + compensation;
             sum += corrected_angle;
-            compensation = (old_sum - sum) + corrected_angle;
+            compensation = ((old_sum - sum) + corrected_angle).0;
             remaining -= 1;
         }
 
         // Bound the result to handle numerical issues
         const MAX_CURVATURE: f64 = 2.0 * PI - 4.0 * DBL_EPSILON;
-        (direction as f64) * (sum + compensation).max(-MAX_CURVATURE).min(MAX_CURVATURE)
+
+        // 	return math.Max(-maxCurvature, math.Min(maxCurvature, float64(dir)*float64(sum+compensation)))
+
+        let min_max_curv_and_compensation = MAX_CURVATURE.min((direction * (sum + compensation)).0);
+        -MAX_CURVATURE.max(min_max_curv_and_compensation)
     }
 
     /// Returns the maximum error in TurningAngle. The value is not constant; it
@@ -1579,10 +1648,10 @@ impl Loop {
         // We use the cross product formula rather than a more complex but
         // numerically stable formula because the final result is normalized
         // by the total turning angle.
-        let angle = v0.0.cross(&v1).angle(&v1.0.cross(&v2));
+        let angle = v0.0.cross(&v1.0).angle(&v1.0.cross(&v2.0));
 
         // Use the determinant to figure out if the angle is positive or negative.
-        if v0.0.dot(&v1.0.cross(&v2)) > 0.0 {
+        if v0.0.dot(&v1.0.cross(&v2.0)) > 0.0 {
             angle
         } else {
             -angle
@@ -1652,7 +1721,7 @@ impl Loop {
                 if origin == self.vertex(0) {
                     // The following point is well-separated from V_i and V_0 (and
                     // therefore V_i+1 as well).
-                    origin = Point(self.vertex(0).0.cross(&self.vertex(i)).normalize());
+                    origin = Point(self.vertex(0).0.cross(&self.vertex(i).0).normalize());
                 } else if self.vertex(i).0.angle(&self.vertex(0).0).0 < MAX_LENGTH {
                     // All edges of the triangle (O, V_0, V_i) are stable, so we can
                     // revert to using V_0 as the origin.
@@ -1662,7 +1731,7 @@ impl Loop {
                     // perpendicular. Therefore V_0.CrossProd(O) is approximately
                     // perpendicular to all of {O, V_0, V_i, V_i+1}, and we can choose
                     // this point O' as the new origin.
-                    origin = Point(self.vertex(0).cross(&old_origin));
+                    origin = Point(self.vertex(0).cross(&old_origin).0);
 
                     // Advance the edge (V_0,O) to (V_0,O').
                     sum += f(self.vertex(0), old_origin, origin);
@@ -1693,14 +1762,14 @@ impl Loop {
     /// complicated shapes (by splitting them into disjoint regions and adding
     /// their centroids).
     pub fn centroid(&self) -> Point {
-        self.surface_integral_point(true_centroid)
+        self.surface_integral_point(crate::point::true_centroid)
     }
 
     /// Computes the oriented surface integral of some vector-valued quantity over
     /// the loop interior. Similar to surface_integral_float64 but returns a Point.
     fn surface_integral_point<F>(&self, f: F) -> Point
     where
-        F: Fn(Point, Point, Point) -> Point,
+        F: Fn(&Point, &Point, &Point) -> Point,
     {
         // Maximum length of an edge for it to be considered numerically stable.
         const MAX_LENGTH: f64 = PI - 1e-5;
@@ -1711,25 +1780,31 @@ impl Loop {
             z: 0.0,
         };
         let mut origin = self.vertex(0);
-
+        // TODO: We dont yet have `Point::point_cross` implemented, using normal cross
         for i in 1..self.vertices.len() - 1 {
-            if self.vertex(i + 1).angle(&origin.0) > MAX_LENGTH {
+            if self.vertex(i + 1).0.angle(&origin.0).0 > MAX_LENGTH {
                 let old_origin = origin;
                 if origin == self.vertex(0) {
-                    origin = Point(self.vertex(0).point_cross(&self.vertex(i)).normalize());
-                } else if self.vertex(i).angle(&self.vertex(0).0) < MAX_LENGTH {
+                    origin = (self.vertex(0).cross(&self.vertex(i)).normalize());
+                } else if self.vertex(i).0.angle(&self.vertex(0).0).0 < MAX_LENGTH {
                     origin = self.vertex(0);
                 } else {
                     origin = Point(self.vertex(0).0.cross(&old_origin.0));
-                    sum = sum + f(self.vertex(0), old_origin, origin).0;
+                    sum = sum + f(&self.vertex(0), &old_origin, &origin).0;
                 }
-                sum = sum + f(old_origin, self.vertex(i), origin).0;
+                sum = sum + f(&old_origin, &self.vertex(i), &origin).0;
             }
-            sum = sum + f(origin, self.vertex(i), self.vertex(i + 1)).0;
+            sum = sum + f(&origin, &self.vertex(i), &self.vertex(i + 1)).0;
         }
 
         if origin != self.vertex(0) {
-            sum = sum + f(origin, self.vertex(self.vertices.len() - 1), self.vertex(0)).0;
+            sum = sum
+                + f(
+                    &origin,
+                    &self.vertex(self.vertices.len() - 1),
+                    &self.vertex(0),
+                )
+                .0;
         }
 
         Point(sum)
@@ -1767,28 +1842,18 @@ fn signed_area(a: Point, b: Point, c: Point) -> f64 {
     2.0 * f64::atan(tan_area_over_2)
 }
 
-// TODO: Eventually seperate this out into its own modeule because this can be used
-//       for other things.
-/// true_centroid returns the true centroid of the spherical triangle (a,b,c) multiplied
-/// by the area of the triangle. It is used by centroid().
-fn true_centroid(a: Point, b: Point, c: Point) -> Point {
-    // The centroid (multiplied by the area) is a vector that points toward the
-    // center of the triangle. The magnitude is equal to the area of the planar
-    // triangle defined by (a, b, c), i.e. (1/2) * |AC×BC| where C is the origin.
-    let vsum = a.0 + b.0 + c.0;
-    let area = 0.5 * (b.0 - a.0).cross(&(c.0 - a.0)).norm();
-    Point(vsum * area / 3.0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::r3::vector::Vector as R3Vector;
     use crate::s1::angle::Angle;
+    use crate::s1::Deg;
     use crate::s2::cell::Cell;
     use crate::s2::cellid::CellID;
     use crate::s2::point::Point;
     use crate::s2::shape::Shape;
+    use std::cmp::PartialEq;
+    use std::convert::TryInto;
     use std::f64::consts::PI;
 
     // Helper function to create a test loop from coordinates
@@ -2112,8 +2177,8 @@ mod tests {
         // Test edge access
         for i in 0..north.num_edges() {
             let edge = north.edge(i as i64);
-            assert_eq!(edge.v0, north.vertex(i));
-            assert_eq!(edge.v1, north.vertex(i + 1));
+            assert_eq!(edge.v0, north.vertex(i as usize));
+            assert_eq!(edge.v1, north.vertex((i + 1) as usize));
         }
 
         // Test wrapping (vertex access)
@@ -2186,7 +2251,7 @@ mod tests {
         // Test that cap bounds work as expected on basic cases
         let north = north_pole_loop();
         let cap = north.cap_bound();
-        assert!(cap.contains(Point(R3Vector {
+        assert!(cap.contains_point(&Point(R3Vector {
             x: 0.0,
             y: 0.0,
             z: 1.0
@@ -2194,7 +2259,7 @@ mod tests {
 
         let south = south_hemisphere_loop();
         let cap = south.cap_bound();
-        assert!(cap.contains(Point(R3Vector {
+        assert!(cap.contains_point(&Point(R3Vector {
             x: 0.0,
             y: 0.0,
             z: -1.0
@@ -2283,17 +2348,17 @@ mod tests {
                 y: 0.0,
                 z: 1.0,
             }); // North pole
-            let radius = Angle::from_degrees(10.0); // 10 degree radius
+            let radius = Angle::from(Deg(10.0)); // 10 degree radius
             let loop_regular = Loop::regular_loop(center, radius, num_vertices);
 
             // Verify vertex count
             assert_eq!(loop_regular.num_vertices(), num_vertices);
-            assert_eq!(loop_regular.num_edges(), num_vertices);
+            assert_eq!(loop_regular.num_edges(), num_vertices.try_into().unwrap());
 
             // Verify that all vertices are the correct angular distance from center
             for i in 0..num_vertices {
                 let v = loop_regular.vertex(i);
-                let dist = center.angle(&v.0);
+                let dist = center.0.angle(&v.0);
                 assert!((dist.rad() - radius.rad()).abs() < 1e-10);
             }
 
@@ -2498,7 +2563,8 @@ mod tests {
         assert!((south.area() - 2.0 * PI).abs() < 1e-10);
 
         // Centroid of empty loop should be zero vector
-        assert_eq!(empty_loop().centroid().0, R3Vector::zero());
+        // TODO: Zero for R3 vec!
+        assert_eq!(empty_loop().centroid().0, R3Vector::new(0.0, 0.0, 0.0));
 
         // South hemisphere centroid should point towards south pole
         let south_centroid = south.centroid();
