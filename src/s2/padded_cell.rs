@@ -77,7 +77,7 @@ fn pos_to_ij(orientation: u8, pos: u8) -> (u8, u8) {
 
 // Given a child's (i,j) coordinates, ijToPos[orientation][ij] returns the position of the child.
 fn ij_to_pos(orientation: u8, i: u8, j: u8) -> u8 {
-    let ij = (i << 1) | j;
+    let ij = (2*i) + j;
     IJ_TO_POS[orientation as usize][ij as usize]
 }
 
@@ -173,7 +173,7 @@ impl PaddedCell {
             j_lo: 0, // Will be set below
         };
 
-        let ij_size = size_ij(cell.level as u64);
+        let ij_size = size_ij(parent.level as u64);
         cell.i_lo = parent.i_lo + (i as i32) * ij_size as i32;
         cell.j_lo = parent.j_lo + (j as i32) * ij_size as i32;
 
