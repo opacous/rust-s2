@@ -111,7 +111,7 @@ impl CellID {
     }
 
     /// from_ij returns a leaf cell given its cube face (range 0..5) and IJ coordinates.
-    fn from_face_ij_wrap(face: u8, mut i: i32, mut j: i32) -> Self {
+    fn from_face_ij_wrap(face: u8, mut i: i64, mut j: i64) -> Self {
         // Convert i and j to the coordinates of a leaf cell just beyond the
         // boundary of this face.  This prevents 32-bit overflow in the case
         // of finding the neighbors of a face cell.
@@ -139,18 +139,18 @@ impl CellID {
     }
 
     //TODO private
-    pub fn from_face_ij(f: u8, i: i32, j: i32) -> Self {
+    pub fn from_face_ij(f: u8, i: i64, j: i64) -> Self {
         let mut n = u64::from(f) << (POS_BITS - 1);
-        let mut bits = i32::from(f & SWAP_MASK);
+        let mut bits = i64::from(f & SWAP_MASK);
 
         let mut k = 7;
         let mask = (1 << LOOKUP_BITS) - 1;
         loop {
             bits += ((i >> (k * LOOKUP_BITS)) & mask) << (LOOKUP_BITS + 2);
             bits += ((j >> (k * LOOKUP_BITS)) & mask) << 2;
-            bits = LOOKUP_POS[bits as usize] as i32;
+            bits = LOOKUP_POS[bits as usize] as i64;
             n |= ((bits >> 2) as u64) << ((k * 2 * LOOKUP_BITS) as u64);
-            bits &= i32::from(SWAP_MASK | INVERT_MASK);
+            bits &= i64::from(SWAP_MASK | INVERT_MASK);
 
             if k == 0 {
                 break;
@@ -160,7 +160,7 @@ impl CellID {
         CellID(n * 2 + 1)
     }
 
-    fn from_face_ij_same(f: u8, i: i32, j: i32, same_face: bool) -> Self {
+    fn from_face_ij_same(f: u8, i: i64, j: i64, same_face: bool) -> Self {
         if same_face {
             Self::from_face_ij(f, i, j)
         } else {
@@ -805,8 +805,8 @@ fn ij_to_stmin(i: i32) -> f64 {
 }
 
 /// st_to_ij converts value in ST coordinates to a value in IJ coordinates.
-pub fn st_to_ij(s: f64) -> i32 {
-    clamp((MAX_SIZE as f64 * s).floor() as i32, 0, MAX_SIZE_I32 - 1)
+pub fn st_to_ij(s: f64) -> i64 {
+    clamp((MAX_SIZE as f64 * s).floor() as i64, 0, MAX_SIZE_I32 - 1)
 }
 
 impl std::fmt::Debug for CellID {

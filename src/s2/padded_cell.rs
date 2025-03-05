@@ -77,7 +77,7 @@ fn pos_to_ij(orientation: u8, pos: u8) -> (u8, u8) {
 
 // Given a child's (i,j) coordinates, ijToPos[orientation][ij] returns the position of the child.
 fn ij_to_pos(orientation: u8, i: u8, j: u8) -> u8 {
-    let ij = (2*i) + j;
+    let ij = (2 * i) + j;
     IJ_TO_POS[orientation as usize][ij as usize]
 }
 
@@ -97,8 +97,8 @@ pub struct PaddedCell {
     padding: f64,
     bound: Rect,
     middle: Option<Rect>, // A rect in (u, v)-space that belongs to all four children.
-    i_lo: i32,            // Minimum i-coordinate of this cell before padding
-    j_lo: i32,            // Minimum j-coordinate of this cell before padding
+    i_lo: i64,            // Minimum i-coordinate of this cell before padding
+    j_lo: i64,            // Minimum j-coordinate of this cell before padding
     orientation: u8,      // Hilbert curve orientation of this cell.
     level: u8,
 }
@@ -123,8 +123,8 @@ impl PaddedCell {
                 padding,
                 bound,
                 middle: Some(middle),
-                i_lo: i32::default(),
-                j_lo: i32::default(),
+                i_lo: i64::default(),
+                j_lo: i64::default(),
                 orientation: id.face() & 1,
                 level: u8::default(),
             };
@@ -133,11 +133,11 @@ impl PaddedCell {
         let (_face, i, j, orientation) = id.face_ij_orientation();
         let level = id.level() as u8;
         let ij_size = size_ij(level as u64);
-        let i_lo = i & -(ij_size as i32);
-        let j_lo = j & -(ij_size as i32);
+        let i_lo = i as i64 & -(ij_size as i64);
+        let j_lo = j as i64 & -(ij_size as i64);
 
         // Get the bound in (u,v) coordinate space
-        let uv_bound = Self::ij_level_to_bound_uv(i, j, level as i32).expanded_by_margin(padding);
+        let uv_bound = Self::ij_level_to_bound_uv(i, j, level as i64).expanded_by_margin(padding);
 
         // panic!("{}", id);
 
@@ -174,8 +174,8 @@ impl PaddedCell {
         };
 
         let ij_size = size_ij(parent.level as u64);
-        cell.i_lo = parent.i_lo + (i as i32) * ij_size as i32;
-        cell.j_lo = parent.j_lo + (j as i32) * ij_size as i32;
+        cell.i_lo = parent.i_lo + ((i as i64) * ij_size as i64) as i64;
+        cell.j_lo = parent.j_lo + ((j as i64) * ij_size as i64) as i64;
 
         // For each child, one corner of the bound is taken directly from the parent
         // while the diagonally opposite corner is taken from middle().
@@ -195,12 +195,12 @@ impl PaddedCell {
     }
 
     /// Converts an (i,j) coordinate and cell level to a CellID.
-    fn ij_level_to_bound_uv(i: i32, j: i32, level: i32) -> Rect {
+    fn ij_level_to_bound_uv(i: i64, j: i64, level: i64) -> Rect {
         let ij_size = size_ij(level as u64);
-        let i_lo = i & -(ij_size as i32);
-        let j_lo = j & -(ij_size as i32);
-        let i_hi = i_lo + (ij_size as i32);
-        let j_hi = j_lo + (ij_size as i32);
+        let i_lo = i & -(ij_size as i64);
+        let j_lo = j & -(ij_size as i64);
+        let i_hi = i_lo + (ij_size as i64);
+        let j_hi = j_lo + (ij_size as i64);
 
         // Compute the bound in (s,t) space and convert to (u,v) coordinates.
         let u_lo = st_to_uv(siti_to_st(2 * i_lo as u64));
@@ -232,8 +232,8 @@ impl PaddedCell {
     /// Returns the center of this cell.
     pub fn center(&self) -> Point {
         let ij_size = size_ij(self.level as u64);
-        let si = (2 * self.i_lo + ij_size as i32) as u32;
-        let ti = (2 * self.j_lo + ij_size as i32) as u32;
+        let si = (2 * self.i_lo + ij_size as i64) as u64;
+        let ti = (2 * self.j_lo + ij_size as i64) as u64;
         crate::s2::stuv::face_siti_to_xyz(self.id.face(), si.into(), ti as u64).normalize()
     }
 
@@ -247,8 +247,8 @@ impl PaddedCell {
         }
 
         let ij_size = size_ij(self.level as u64);
-        let u = st_to_uv(siti_to_st((2 * self.i_lo + ij_size as i32) as u64));
-        let v = st_to_uv(siti_to_st((2 * self.j_lo + ij_size as i32) as u64));
+        let u = st_to_uv(siti_to_st((2 * self.i_lo + ij_size as i64) as u64));
+        let v = st_to_uv(siti_to_st((2 * self.j_lo + ij_size as i64) as u64));
 
         let middle = Rect::from_intervals(
             Interval::new(u - self.padding, u + self.padding).into(),
@@ -282,8 +282,8 @@ impl PaddedCell {
         let mut j = self.j_lo;
         if self.orientation & INVERT_MASK != 0 {
             let ij_size = size_ij(self.level as u64);
-            i += ij_size as i32;
-            j += ij_size as i32;
+            i += ij_size as i64;
+            j += ij_size as i64;
         }
         // Convert to u64 before multiplication to avoid overflow
         s2::stuv::face_siti_to_xyz(self.id.face(), (i as u64) * 2, (j as u64) * 2).normalize()
@@ -297,9 +297,9 @@ impl PaddedCell {
         let mut j = self.j_lo;
         let ij_size = size_ij(self.level as u64);
         if self.orientation == 0 || self.orientation == SWAP_MASK + INVERT_MASK {
-            i += ij_size as i32;
+            i += ij_size as i64;
         } else {
-            j += ij_size as i32;
+            j += ij_size as i64;
         }
         // Convert to u64 before multiplication to avoid overflow
         s2::stuv::face_siti_to_xyz(self.id.face(), (i as u64) * 2, (j as u64) * 2).normalize()
@@ -329,9 +329,9 @@ impl PaddedCell {
 
         let ij_size = size_ij(self.level as u64);
         if rect.x.contains(st_to_uv(siti_to_st(
-            (2 * self.i_lo + ij_size as i32) as u64,
+            (2 * self.i_lo + ij_size as i64) as u64,
         ))) || rect.y.contains(st_to_uv(siti_to_st(
-            (2 * self.j_lo + ij_size as i32) as u64,
+            (2 * self.j_lo + ij_size as i64) as u64,
         ))) {
             return self.id;
         }
@@ -353,13 +353,13 @@ impl PaddedCell {
         let mut j_xor;
 
         // Calculate minimum i-coordinate
-        let padded_i_min = st_to_ij(uv_to_st(padded.x.lo));
+        let padded_i_min = st_to_ij(uv_to_st(padded.x.lo)) as i64;
         if i_min < padded_i_min {
             i_min = padded_i_min;
         }
 
         // Calculate i_xor (XOR of min and max i-coordinates)
-        let i_max_limit = self.i_lo + (ij_size as i32) - 1;
+        let i_max_limit = self.i_lo + (ij_size as i64) - 1;
         let padded_i_max = st_to_ij(uv_to_st(padded.x.hi));
         if i_max_limit <= padded_i_max {
             i_xor = i_min ^ i_max_limit;
@@ -374,7 +374,7 @@ impl PaddedCell {
         }
 
         // Calculate j_xor (XOR of min and max j-coordinates)
-        let j_max_limit = self.j_lo + (ij_size as i32) - 1;
+        let j_max_limit = self.j_lo + (ij_size as i64) - 1;
         let padded_j_max = st_to_ij(uv_to_st(padded.y.hi));
         if j_max_limit <= padded_j_max {
             j_xor = j_min ^ j_max_limit;
@@ -395,7 +395,7 @@ impl PaddedCell {
             return self.id;
         }
 
-        CellID::from_face_ij(self.id.face(), i_min, j_min).parent(level as u64)
+        CellID::from_face_ij(self.id.face(), i_min as i32, j_min as i32).parent(level as u64)
     }
 }
 
@@ -471,10 +471,22 @@ mod tests {
         let cell = s2::cell::Cell::from(cid);
         let p_cell = PaddedCell::from_cell_id(cid, padding);
 
+        println!("cell_id mismatch? {} != {}", cell.id, p_cell.id);
         assert_eq!(cell.id, p_cell.id, "cell_id mismatch");
+        println!(
+            "level mismatch? {} != {}",
+            cell.id.level(),
+            p_cell.level() as u64
+        );
         assert_eq!(cell.id.level(), p_cell.level() as u64, "level mismatch");
+        println!("padding mismatch? {} != {}", padding, p_cell.padding());
         assert_eq!(padding, p_cell.padding(), "padding mismatch");
 
+        println!(
+            "bound mismatch? {:?} != {:?}",
+            p_cell.bound(),
+            cell.bound_uv().expanded_by_margin(padding)
+        );
         assert_eq!(
             p_cell.bound(),
             cell.bound_uv().expanded_by_margin(padding),
@@ -482,14 +494,19 @@ mod tests {
         );
 
         let r = R2Rect::from_points(&[cell.id.center_uv()]).expanded_by_margin(padding);
+        println!("middle mismatch? {:?} != {:?}", r, p_cell.middle());
         assert_eq!(r, p_cell.middle(), "middle mismatch");
 
+        println!(
+            "center mismatch? {:?} != {:?}",
+            cell.id.center_point(),
+            p_cell.center()
+        );
         assert_eq!(cell.id.center_point(), p_cell.center(), "center mismatch");
 
         if cid.is_leaf() {
             return;
         }
-
         let children = cell.children().unwrap();
         for pos in 0..4 {
             let (i, j) = p_cell.child_ij(pos);
@@ -525,6 +542,23 @@ mod tests {
             );
             println!(
                 "cell child bound with margin expansion - y hi: {:.64}",
+                cell_child.bound_uv().expanded_by_margin(padding).y.hi
+            );
+
+            assert_f64_eq!(
+                p_cell_child.bound().x.lo,
+                cell_child.bound_uv().expanded_by_margin(padding).x.lo
+            );
+            assert_f64_eq!(
+                p_cell_child.bound().x.hi,
+                cell_child.bound_uv().expanded_by_margin(padding).x.hi
+            );
+            assert_f64_eq!(
+                p_cell_child.bound().y.lo,
+                cell_child.bound_uv().expanded_by_margin(padding).y.lo
+            );
+            assert_f64_eq!(
+                p_cell_child.bound().y.hi,
                 cell_child.bound_uv().expanded_by_margin(padding).y.hi
             );
 
