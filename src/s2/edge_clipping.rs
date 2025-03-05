@@ -38,32 +38,32 @@ use crate::s2::stuv::face_xyz_to_uvw;
 /// result, assuming that the points A and B are in the rectangle [-1,1]x[1,1] or slightly outside
 /// it (by 1e-10 or less).
 #[allow(dead_code)]
-const EDGE_CLIP_ERROR_UV_COORD: f64 = 2.25 * DBL_EPSILON;
+pub const EDGE_CLIP_ERROR_UV_COORD: f64 = 2.25 * DBL_EPSILON;
 
 /// EDGE_CLIP_ERORR_UV_DIST is the maximum distance from a clipped point to
 /// the corresponding exact result. It is equal to the error in a single
 /// coordinate because at most one coordinate is subject to error.
 #[allow(dead_code)]
-const EDGE_CLIP_ERROR_UV_DIST: f64 = 2.25 * DBL_EPSILON;
+pub const EDGE_CLIP_ERROR_UV_DIST: f64 = 2.25 * DBL_EPSILON;
 
 /// FACE_CLIP_ERROR_RADIANS is the maximum angle between a returned vertex
 /// and the nearest point on the exact edge AB. It is equal to the
 /// maximum directional error in PointCross, plus the error when
 /// projecting points onto a cube face
-const FACE_CLIP_ERROR_RADIANS: f64 = 3.0 * DBL_EPSILON;
+pub const FACE_CLIP_ERROR_RADIANS: f64 = 3.0 * DBL_EPSILON;
 
 /// faceClipErrorDist is the same angle expressed as a maximum distance
 /// in (u,v)-space. In other words, a returned vertex is at most this far
 /// from the exact edge AB projected into (u,v)-space.
 #[allow(dead_code)]
-const FACE_CLIP_ERROR_UV_DIST: f64 = 9.0 * DBL_EPSILON;
+pub const FACE_CLIP_ERROR_UV_DIST: f64 = 9.0 * DBL_EPSILON;
 
 /// FACE_CLIP_ERROR_UV_COORD is the maximum angle between a returned vertex
 /// and the nearest point on the exact edge AB expressed as the maximum error
 /// in an individual u- or v-coordinate. In other words, for each
 /// returned vertex there is a point on the exact edge AB whose u- and
 /// v-coordinates differ from the vertex by at most this amount
-const FACE_CLIP_ERROR_UV_COORD: f64 = 9.0 * (1.0 / std::f64::consts::SQRT_2) * DBL_EPSILON;
+pub const FACE_CLIP_ERROR_UV_COORD: f64 = 9.0 * (1.0 / std::f64::consts::SQRT_2) * DBL_EPSILON;
 
 /// INTERSECT_RECT_ERROR_UV_DIST is the maximum error when computing if a point
 /// intersects with a given Rect. If some point of AB is inside the
@@ -73,7 +73,7 @@ const FACE_CLIP_ERROR_UV_COORD: f64 = 9.0 * (1.0 / std::f64::consts::SQRT_2) * D
 /// a subset of the rectangle [-1,1]x[-1,1] or extends slightly outside it
 /// (e.g., by 1e-10 or less)
 #[allow(dead_code)]
-const INTERSECT_RECT_ERROR_UV_DIST: f64 = 3.0 * std::f64::consts::SQRT_2 * DBL_EPSILON;
+pub const INTERSECT_RECT_ERROR_UV_DIST: f64 = 3.0 * std::f64::consts::SQRT_2 * DBL_EPSILON;
 
 /// clip_to_face returns the (u,v) coordinates for the portion of the edge AB that
 /// intersects the given face, or false if the edge AB does not intersect.
@@ -498,7 +498,7 @@ fn clip_bound_axis(
 /// edge_intersects_rect reports whether the edge defined by AB intersects the
 /// given closed rectangle to within the error bound.
 #[allow(dead_code)]
-fn edge_intersects_rec(a: r2::point::Point, b: r2::point::Point, r: &r2::rect::Rect) -> bool {
+pub fn edge_intersects_rect(a: r2::point::Point, b: r2::point::Point, r: &r2::rect::Rect) -> bool {
     // First check whether the bounds of a Rect around AB intersects the given rect.
     if !r.intersects(&(r2::rect::Rect::from_points(&[a, b]))) {
         return false;

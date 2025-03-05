@@ -411,7 +411,7 @@ pub fn regular_points(center: &Point, radius: Angle, num_vertices: usize) -> Vec
 /// with numVertices vertices, all on a circle of the specified angular radius around
 /// the center. The radius is the actual distance from the center to each vertex.
 /// TODO: private?
-fn regular_points_for_frame(
+pub fn regular_points_for_frame(
     frame: &Matrix3<f64>,
     radius: Angle,
     num_vertices: usize,

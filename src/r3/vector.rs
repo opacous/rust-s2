@@ -137,6 +137,7 @@ impl std::ops::Mul<i64> for Vector {
 
 use std::cmp::*;
 use std::hash::{Hash, Hasher};
+use crate::point::Point;
 
 impl Eq for Vector {}
 
@@ -228,7 +229,7 @@ impl Vector {
     }
 
     /// cross returns the standard cross product of v and ov.
-    pub fn cross(&self, other: &Self) -> Self {
+    pub fn cross(&self, other: &Vector) -> Self {
         Vector {
             x: self.y * other.z - self.z * other.y,
             y: self.z * other.x - self.x * other.z,

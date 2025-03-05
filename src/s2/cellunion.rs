@@ -251,6 +251,12 @@ impl Region for CellUnion {
     }
 }
 
+impl From<Vec<CellID>> for CellUnion {
+    fn from(v: Vec<CellID>) -> Self {
+        CellUnion(v)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

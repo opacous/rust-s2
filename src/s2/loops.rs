@@ -12,31 +12,54 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::cmp;
-use std::f64;
-use std::f64::consts::PI;
-
 use crate::consts::{f64_eq, DBL_EPSILON};
-use crate::point::ordered_ccw;
+use crate::point::{ordered_ccw, regular_points_for_frame};
 use crate::r1::interval::Interval as R1Interval;
 use crate::r3::vector::Vector as R3Vector;
 use crate::rect_bounder::expand_for_subregions;
 use crate::region::Region;
 use crate::s1;
+use crate::s1::Angle;
 use crate::s2::cap::Cap;
 use crate::s2::cell::Cell;
 use crate::s2::cellid::CellID;
+use crate::s2::edge_clipping::{
+    clip_to_padded_face, edge_intersects_rect, INTERSECT_RECT_ERROR_UV_DIST,
+};
 use crate::s2::edge_crosser::EdgeCrosser;
 use crate::s2::edge_crossings::angle_contains_vertex;
 use crate::s2::point::Point;
+use crate::s2::random::frame_at_point;
 use crate::s2::rect::Rect;
 use crate::s2::rect_bounder::RectBounder;
 use crate::s2::shape::{Chain, ChainPosition, Edge, ReferencePoint, Shape, ShapeType};
 use crate::s2::shape_index::{CellRelation, ShapeIndex};
+use crate::shape_index::CellRelation::{Disjoint, Indexed, Subdivided};
+use crate::shape_index::FACE_CLIP_ERROR_UV_COORD;
+use cgmath::Matrix3;
+use std::f64;
+use std::f64::consts::PI;
+use std::fmt::{Debug, Formatter};
+use std::hash::{Hash, Hasher};
 
 pub enum OriginBound {
     OriginInside,
     BoundEncoded,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum VertexTraversalDirection {
+    Forward, // vertices are traversed starting from firstIdx and incrementing the index. This is the "forward" direction. The sequence will be firstIdx, firstIdx + 1, firstIdx + 2,
+    Backward, // vertices are traversed starting from firstIdx + n (where n is the loop length) and decrementing the index. This is the "backward" direction. The sequence will be firstIdx + n, firstIdx + n - 1, firstIdx + n - 2
+}
+
+impl Into<i32> for VertexTraversalDirection {
+    fn into(self) -> i32 {
+        match self {
+            VertexTraversalDirection::Forward => {1}
+            VertexTraversalDirection::Backward => {-1}
+        }
+    }
 }
 
 /// Loop represents a simple spherical polygon. It consists of a sequence
@@ -97,6 +120,18 @@ const FULL_LOOP_POINT: Point = Point(R3Vector {
     y: 0.0,
     z: -1.0,
 });
+
+impl Debug for Loop {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+
+impl Hash for Loop {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        todo!()
+    }
+}
 
 impl Loop {
     /// Creates a new loop from the given points.
@@ -195,7 +230,7 @@ impl Loop {
 
         // Create a new index and add us to it.
         self.index = ShapeIndex::new();
-        self.index.add(self.into());
+        self.index.add(&ShapeType::Loop(self.clone()));
     }
 
     /// Sets up the approximate bounding Rects for this loop.
@@ -687,7 +722,9 @@ impl IntersectsRelation {
             found_shared_vertex: false,
         }
     }
+}
 
+impl LoopRelation for IntersectsRelation {
     fn a_crossing_target(&self) -> CrossingTarget {
         CrossingTarget::Cross
     }
@@ -696,7 +733,14 @@ impl IntersectsRelation {
         CrossingTarget::Cross
     }
 
-    fn wedges_cross(&mut self, a0: Point, ab1: Point, a2: Point, b0: Point, b2: Point) -> bool {
+    fn wedges_cross(
+        &mut self,
+        a0: &Point,
+        ab1: &Point,
+        a2: &Point,
+        b0: &Point,
+        b2: &Point,
+    ) -> bool {
         self.found_shared_vertex = true;
         // In the Go code this would call WedgeIntersects, but we'll reuse WedgeContains with
         // appropriate logic until we implement WedgeIntersects
@@ -706,7 +750,7 @@ impl IntersectsRelation {
 
 /// WedgeIntersects reports whether the wedges AB1C and DB1E intersect.
 /// This is used for testing whether two loops intersect at a shared vertex B1.
-fn wedge_intersects(a: Point, b: Point, c: Point, d: Point, e: Point) -> bool {
+fn wedge_intersects(a: &Point, b: &Point, c: &Point, d: &Point, e: &Point) -> bool {
     // For A, B, C, if A == C then the wedge covers the entire sphere.
     // This should not be confused with a degenerate wedge for which B == A or B == C.
     // Note that we don't need to worry about the case where
@@ -725,10 +769,10 @@ fn wedge_intersects(a: Point, b: Point, c: Point, d: Point, e: Point) -> bool {
     // wedge contains the other's boundary.
 
     // Does the boundary of the first wedge contain the boundary of the second wedge?
-    let contains_1 = general_wedge_contains(&a, &b, &c, &d, &e);
+    let contains_1 = general_wedge_contains(a, b, c, d, e);
 
     // Does the boundary of the second wedge contain the boundary of the first wedge?
-    let contains_2 = general_wedge_contains(&d, &b, &e, &a, &c);
+    let contains_2 = general_wedge_contains(d, b, e, a, c);
 
     // The wedges intersect if and only if neither contains the other's boundary
     !contains_1 && !contains_2
@@ -769,7 +813,7 @@ enum CrossingTarget {
 
 enum BoundaryCondition {
     LoopContainsOtherLoop, // 1
-    LoopCrossesOtherLoop, // 0
+    LoopCrossesOtherLoop,  // 0
     LoopExcludesOtherLoop, //-1
 }
 
@@ -943,7 +987,9 @@ impl Loop {
     /// another loop without needing to check all pairs of edges for crossings.
     pub fn compare_boundary(&self, b: &Loop) -> BoundaryCondition {
         // The bounds must intersect for containment or crossing.
-        if !self.bound.intersects(&b.bound) { return BoundaryCondition::LoopExcludesOtherLoop;}
+        if !self.bound.intersects(&b.bound) {
+            return BoundaryCondition::LoopExcludesOtherLoop;
+        }
 
         // Full loops are handled as though the loop surrounded the entire sphere.
         if self.is_full() {
@@ -957,19 +1003,19 @@ impl Loop {
         // relationship at any shared vertices.
         let mut relation = CompareBoundaryRelation::new(b.is_hole()); //(o.IsHole())
         if has_crossing_relation(self, b, &mut relation) {
-            return BoundaryCondition::LoopCrossesOtherLoop
+            return BoundaryCondition::LoopCrossesOtherLoop;
         }
         if relation.found_shared_vertex {
             if relation.contains_edge {
-                return BoundaryCondition::LoopContainsOtherLoop
+                return BoundaryCondition::LoopContainsOtherLoop;
             }
-            return BoundaryCondition::LoopExcludesOtherLoop
+            return BoundaryCondition::LoopExcludesOtherLoop;
         }
 
         // There are no edge intersections or shared vertices, so we can check
         // whether A contains an arbitrary vertex of B.
         if self.contains_point(b.vertex(0)) {
-            return BoundaryCondition::LoopContainsOtherLoop
+            return BoundaryCondition::LoopContainsOtherLoop;
         }
 
         BoundaryCondition::LoopExcludesOtherLoop
@@ -984,279 +1030,139 @@ impl Loop {
     /// and is in the forward direction. The result is unspecified if the loop has
     /// no vertices.
     pub fn canonical_first_vertex(&self) -> (usize, i32) {
-        if self.vertices.is_empty() {
-            return (0, 1);
-        }
-
-        let mut first = 0;
+        let mut first_idx = 0;
         let mut dir = 1;
         let n = self.vertices.len();
 
         for i in 0..n {
-            // This is the i-th edge in the forward direction.
-            let v0 = self.vertex(i);
-            let v1 = self.vertex(i + 1);
-            let edge_dir = 1;
-
-            // If the edge from v0 to v1 is the smallest so far, update first and dir.
-            if (v0, v1) < (self.vertex(first), self.vertex(first + dir)) {
-                first = i;
-                dir = edge_dir;
-            }
-
-            // This is the i-th edge in the reverse direction.
-            let v0 = self.vertex(i + 1);
-            let v1 = self.vertex(i);
-            let edge_dir = -1;
-
-            // If the edge from v0 to v1 is the smallest so far, update first and dir.
-            if (v0, v1) < (self.vertex(first), self.vertex(first + dir)) {
-                first = i + 1;
-                dir = edge_dir;
+            if self.vertex(i).0 < self.vertex(first_idx).0 {
+                first_idx = i;
             }
         }
 
-        (first % n, dir)
-    }
-
-    /// ContainsNonCrossingBoundary reports whether the boundary of this loop
-    /// contains the boundary of the given other loop without the two boundaries
-    /// ever crossing.
-    ///
-    /// This method is used for testing whether the interiors of the two loops
-    /// have any points in common.  If the loop
-    /// boundaries cross, the boundaries may in fact contain each other but this
-    /// method doesn't try to determine that.
-    ///
-    /// This requires that neither loop has duplicate vertices or edges.
-    pub fn contains_non_crossing_boundary(&self, b: &Loop) -> bool {
-        let result = self.compare_boundary(b);
-
-        // If the boundaries of the two loops cross, return false (they may or may
-        // not contain each other).
-        if result == 0 {
-            return false;
+        // 0 <= firstIdx <= n-1, so (firstIdx+n*dir) <= 2*n-1.
+        if self.vertex(first_idx + 1).0 < (self.vertex(first_idx + n - 1).0) {
+            return (first_idx, 1);
         }
-        // Otherwise, the result is +1 if A contains B and -1 if A excludes B.
-        result > 0
+
+        // n <= firstIdx <= 2*n-1, so (firstIdx+n*dir) >= 0.
+        first_idx += n;
+        (first_idx, -1)
     }
 
     /// ContainsCell reports whether this loop contains the given cell.
     /// This method assumes that the loop has been indexed.
     pub fn contains_cell(&self, target: &crate::s2::cell::Cell) -> bool {
-        if self.is_empty() {
-            return false;
-        }
-        if self.is_full() {
-            return true;
-        }
+        let mut it = self.index.iterator();
+        let relation = it.locate_cell_id(target.id);
 
-        let target_id = target.id();
-
-        // We cannot call contains_Point directly because the loop may not have been indexed.
-        if self.subregion_bound.contains(target.rect_bound().clone()) {
-            // The cell is completely contained within the loop.
-            return true;
-        }
-
-        if !self.bound.intersects(target.rect_bound()) {
-            // The cell does not intersect the loop at all.
+        // If "target" is disjoint from all index cells, it is not contained.
+        // Similarly, if "target" is subdivided into one or more index cells then it
+        // is not contained, since index cells are subdivided only if they (nearly)
+        // intersect a sufficient number of edges.  (But note that if "target" itself
+        // is an index cell then it may be contained, since it could be a cell with
+        // no edges in the loop interior.)
+        if relation != Indexed {
             return false;
         }
 
-        // The cell is on the edge of the loop.
-        // Test containment of a corner vertex.
-        // If the loop contains a corner of the cell, it fully contains the cell.
-        if self.contains_point(target.vertex(0)) {
-            return true;
+        // Otherwise check if any edges intersect "target".
+        if self.boundary_approx_intersects(target) {
+            return false;
         }
 
-        // Test whether any edges of the cell intersect the loop.
-        for i in 0..4 {
-            let edge = target.edge(i);
-            let mut query = crate::s2::crossing_edge_query::CrossingEdgeQuery::new(&self.index);
-            let crossings = query.crossings(
-                edge.v0,
-                edge.v1,
-                self as &dyn crate::s2::shape::Shape,
-                crate::s2::crossing_edge_query::CrossingType::All,
-            );
-
-            if !crossings.is_empty() {
-                // The cell edge intersects the loop, so the cell is not fully contained.
-                return false;
-            }
-        }
-
-        // The cell is disjoint from the loop.
-        false
+        // Otherwise check if the loop contains the center of "target".
+        self.iterator_contains_point(&mut it, target.center())
     }
 
     /// IntersectsCell reports whether this loop intersects the given cell.
     /// This method assumes that the loop has been indexed.
     pub fn intersects_cell(&self, target: &crate::s2::cell::Cell) -> bool {
-        if self.is_empty() {
+        let mut it = self.index.iterator();
+        let relation = it.locate_cell_id(target.id);
+
+        // If target does not overlap any index cell, there is no intersection.
+        if relation == Disjoint {
             return false;
         }
-        if self.is_full() {
+        // If target is subdivided into one or more index cells, there is an
+        // intersection to within the ShapeIndex error bound (see Contains).
+        if relation == Subdivided {
             return true;
         }
-
-        let target_id = target.id();
-
-        // We cannot call contains_Point directly because the loop may not have been indexed.
-        if !self.bound.intersects(target.rect_bound()) {
-            // The cell does not intersect the loop at all.
-            return false;
-        }
-
-        if self.subregion_bound.contains(target.rect_bound().clone()) {
-            // The cell is completely contained within the loop.
+        // If target is an index cell, there is an intersection because index cells
+        // are created only if they have at least one edge or they are entirely
+        // contained by the loop.
+        if it.cell_id() == target.id {
             return true;
         }
-
-        // The cell partially intersects the loop. Test if any corner is contained.
-        for i in 0..4 {
-            if self.contains_point(target.vertex(i)) {
-                return true;
-            }
-        }
-
-        // Test whether any edges of the cell intersect the loop.
-        for i in 0..4 {
-            let edge = target.edge(i);
-            let mut query = crate::s2::crossing_edge_query::CrossingEdgeQuery::new(&self.index);
-            let crossings = query.crossings(
-                edge.v0,
-                edge.v1,
-                self as &dyn crate::s2::shape::Shape,
-                crate::s2::crossing_edge_query::CrossingType::All,
-            );
-
-            if !crossings.is_empty() {
-                // The cell edge intersects the loop.
-                return true;
-            }
-        }
-
-        // Test if the loop is fully contained by the cell.
-        if self.vertices.len() > 0 && target.contains_point(self.vertex(0)) {
+        // Otherwise check if any edges intersect target.
+        if self.boundary_approx_intersects(target) {
             return true;
         }
-
-        // The cell is disjoint from the loop.
-        false
+        // Otherwise check if the loop contains the center of target.
+        self.iterator_contains_point(&mut it, target.center())
     }
 
-    /// CellUnionBound returns a covering of the loop.
+    // CellUnionBound computes a covering of the Loop.
     pub fn cell_union_bound(&self) -> crate::s2::cellunion::CellUnion {
-        // We have two options:
-        // (1) Convert the region to an S2CellUnion and call Denormalize().
-        //     This can create a very large number of cells.
-        // (2) Create a covering of the loop's bounding rectangle.
-        //     Nearly always this is the best option, but in pathological
-        //     cases (such as a loop that follows a cell boundary) it could
-        //     use significantly more cells.
-        // We use option (2) for simplicity.
-        self.bound.covering()
+        self.bound.cap_bound().cell_union_bound().into()
     }
 
-    /// BoundaryApproxIntersects reports whether the boundary of this loop
-    /// intersects target, either by crossing the boundary of target, or by
-    /// being completely contained inside target, or by completely containing
-    /// target. This is an approximate test, and may return true when no
-    /// actual intersection exists.
+    // boundaryApproxIntersects reports if the loop's boundary intersects target.
+    // It may also return true when the loop boundary does not intersect target but
+    // some edge comes within the worst-case error tolerance.
+    //
+    // This requires that it.Locate(target) returned Indexed.
     pub fn boundary_approx_intersects(&self, target: &crate::s2::cell::Cell) -> bool {
-        // This test is just a quick approximation.  It may return true even when
-        // the loop does not actually intersect the cell, e.g. if the loop
-        // intersects the cell bounding rectangle but not the cell itself.
-        if self.is_empty() {
-            return false;
-        }
-        if !self.bound.intersects(target.rect_bound()) {
-            return false;
-        }
+        let it = self.index.iterator();
+        let aClipped = it.index_cell().unwrap().find_by_shape_id(0).unwrap();
 
-        // Otherwise, we do the exact test.
-        self.boundary_intersects_cell(target)
-    }
-
-    /// BoundaryIntersectsCell reports whether the loop boundary intersects the cell.
-    /// The loop and cell boundaries intersect if both of the following are true:
-    /// (1) There is a loop edge that intersects the cell or is entirely contained
-    ///     within the cell.
-    /// (2) There is a cell edge that intersects the loop or is entirely contained
-    ///     within the loop.
-    /// This implies that if the loop contains the cell, or the cell contains the
-    /// loop, their boundaries do not intersect.
-    fn boundary_intersects_cell(&self, cell: &crate::s2::cell::Cell) -> bool {
-        if self.is_empty_or_full() {
+        // If there are no edges, there is no intersection.
+        // TODO: Potentially the wrong way to do this maybe directly counting edges is right?
+        if aClipped.num_edges() == 0 {
             return false;
         }
 
-        // Check whether any loop edge intersects the cell.
-        let mut query = crate::s2::crossing_edge_query::CrossingEdgeQuery::new(&self.index);
-        for i in 0..4 {
-            let cell_edge = cell.edge(i);
-            let crossings = query.crossings(
-                cell_edge.v0,
-                cell_edge.v1,
-                self as &dyn crate::s2::shape::Shape,
-                crate::s2::crossing_edge_query::CrossingType::All,
+        // We can save some work if target is the index cell itself.
+        if it.cell_id() == target.id {
+            return true;
+        }
+
+        // Otherwise check whether any of the edges intersect target.
+        let maxError = (FACE_CLIP_ERROR_UV_COORD + INTERSECT_RECT_ERROR_UV_DIST);
+        let bound = target.bound_uv().expanded_by_margin(maxError);
+        for (_, ai) in aClipped.edges.iter().enumerate() {
+            let v0_outer = clip_to_padded_face(
+                self.vertex(*ai as usize),
+                self.vertex((ai + 1) as usize),
+                target.face(),
+                maxError,
             );
-
-            if !crossings.is_empty() {
+            if let Some((v0, v1)) = v0_outer
+                && edge_intersects_rect(v0, v1, &bound.clone())
+            {
                 return true;
             }
         }
-
-        // Check whether the cell contains any loop vertex. (This is sufficient to
-        // check if any loop edge is contained by the cell.)
-        for i in 0..self.num_vertices() {
-            if cell.contains_point(self.vertex(i)) {
-                return true;
-            }
-        }
-
-        // Check whether the loop contains any cell vertex. (This is sufficient to
-        // check if any cell edge is contained by the loop.)
-        for i in 0..4 {
-            if self.contains_point(cell.vertex(i)) {
-                return true;
-            }
-        }
-
         false
     }
 
     /// RegularLoop creates a loop with the given number of vertices, all
     /// located on a circle of the specified radius around the given center.
     pub fn regular_loop(center: Point, radius: crate::s1::angle::Angle, n: usize) -> Self {
-        let frame = crate::s2::rect_bounder::Frame::from_point(center);
-        Self::regular_loop_for_frame(frame, radius, n)
+        Self::regular_loop_for_frame(&frame_at_point(&mut todo!(), center), radius, n)
     }
 
     /// RegularLoopForFrame creates a loop centered at the z-axis of the given
     /// coordinate frame, with the specified angular radius in radians and number
     /// of vertices.
     pub fn regular_loop_for_frame(
-        frame: crate::s2::rect_bounder::Frame,
+        frame: &Matrix3<f64>,
         radius: crate::s1::angle::Angle,
-        n: usize,
+        n_vertices: usize,
     ) -> Self {
-        let mut vertices = Vec::with_capacity(n);
-
-        for i in 0..n {
-            let angle = 2.0 * std::f64::consts::PI * (i as f64) / (n as f64);
-            let p = Point(crate::r3::vector::Vector {
-                x: radius.rad().cos() * angle.cos(),
-                y: radius.rad().cos() * angle.sin(),
-                z: radius.rad().sin(),
-            });
-            vertices.push(frame.to_xyzpoint(p));
-        }
-
-        Self::from_points(vertices)
+        Loop::from_points(regular_points_for_frame(frame, radius, n_vertices))
     }
 
     /// encode encodes the loop to a byte vector.
@@ -1354,7 +1260,8 @@ impl Loop {
         // Initialize the bounds and index
         loop_inst.init_bound();
         loop_inst.index = ShapeIndex::new();
-        loop_inst.index.add(&loop_inst);
+        let wrapped_shape_loop = loop_inst.clone().into();
+        loop_inst.index.add(&wrapped_shape_loop);
 
         Ok(loop_inst)
     }
@@ -1380,7 +1287,7 @@ impl Loop {
 
         // Encode vertices as cell IDs at the given snap level
         for vertex in &self.vertices {
-            let cell_id = crate::s2::cellid::CellID::from_point(vertex);
+            let cell_id = crate::s2::cellid::CellID::from(vertex);
             let cell_id_at_level = cell_id.parent(snap_level as u64);
             data.extend_from_slice(&cell_id_at_level.0.to_be_bytes());
         }
@@ -1433,7 +1340,7 @@ impl Loop {
             let cell_id_raw = u64::from_be_bytes(cell_id_bytes);
 
             let cell_id = crate::s2::cellid::CellID(cell_id_raw);
-            let point = cell_id.to_point();
+            let point = cell_id.center_point();
 
             vertices.push(point);
         }
@@ -1451,7 +1358,7 @@ impl Loop {
         // Initialize the bounds and index
         loop_inst.init_bound();
         loop_inst.index = ShapeIndex::new();
-        loop_inst.index.add(&loop_inst);
+        loop_inst.index.add(&ShapeType::Loop(loop_inst.clone()));
 
         Ok(loop_inst)
     }
@@ -1521,7 +1428,7 @@ impl Loop {
     pub fn is_normalized(&self) -> bool {
         // Optimization: if the longitude span is less than 180 degrees, then the
         // loop covers less than half the sphere and is therefore normalized.
-        if self.bound.lng.length() < PI {
+        if self.bound.lng.len() < PI {
             return true;
         }
 
@@ -1564,8 +1471,38 @@ impl Loop {
         } else {
             self.init_bound();
         }
-        self.index.add(self);
+
+        // TODO: Not sure if this cloning treatment is correct (arc? clone? Point lifetime?)
+        let wrapped_loop = ShapeType::Loop(self.clone());
+
+        self.index.add(&wrapped_loop);
     }
+
+    // CanonicalFirstVertex returns a first index and a direction (either +1 or -1)
+    // such that the vertex sequence (first, first+dir, ..., first+(n-1)*dir) does
+    // not change when the loop vertex order is rotated or inverted. This allows the
+    // loop vertices to be traversed in a canonical order. The return values are
+    // chosen such that (first, ..., first+n*dir) are in the range [0, 2*n-1] as
+    // expected by the Vertex method.
+    fn canonical_first_vertex(&self) -> (usize, VertexTraversalDirection) {
+        let mut first_idx = 0;
+        let n = self.vertices.len();
+        for i in 1..n {
+            if self.vertex(i).0 < (self.vertex(first_idx).0) {
+                first_idx = i
+            }
+        }
+
+        // 0 <= first_idx <= n-1, so (first_idx+n*dir) <= 2*n-1.
+        if self.vertex(first_idx+1).0 < (self.vertex(first_idx+n-1).0) {
+            return (first_idx, VertexTraversalDirection::Forward)
+        }
+
+        // n <= first_idx <= 2*n-1, so (first_idx+n*dir) >= 0.
+        first_idx += n;
+        return (first_idx, VertexTraversalDirection::Backward)
+    }
+
 
     /// Returns the sum of the turning angles at each vertex. The return value is
     /// positive if the loop is counter-clockwise, negative if the loop is
@@ -1638,14 +1575,14 @@ impl Loop {
     }
 
     /// Compute the turning angle between three consecutive vertices.
-    fn turn_angle(&self, v0: Point, v1: Point, v2: Point) -> f64 {
+    fn turn_angle(&self, v0: Point, v1: Point, v2: Point) -> Angle {
         // We use the cross product formula rather than a more complex but
         // numerically stable formula because the final result is normalized
         // by the total turning angle.
-        let angle = v0.0.cross(&v1.0).angle(&v1.0.cross(&v2.0));
+        let angle = v0.0.cross(&v1).angle(&v1.0.cross(&v2));
 
         // Use the determinant to figure out if the angle is positive or negative.
-        if v0.0.dot(&v1.0.cross(&v2.0)) > 0.0 {
+        if v0.0.dot(&v1.0.cross(&v2)) > 0.0 {
             angle
         } else {
             -angle
@@ -1708,15 +1645,15 @@ impl Loop {
             // be the length of edge (A,B). At the start of each loop iteration, the
             // "leading edge" of the triangle fan is (O,V_i), and we want to extend
             // the triangle fan so that the leading edge is (O,V_i+1).
-            if self.vertex(i + 1).angle(&origin.0) > MAX_LENGTH {
+            if self.vertex(i + 1).0.angle(&origin.0).0 > MAX_LENGTH {
                 // We are about to create an unstable edge, so choose a new origin O'
                 // for the triangle fan.
                 let old_origin = origin;
                 if origin == self.vertex(0) {
                     // The following point is well-separated from V_i and V_0 (and
                     // therefore V_i+1 as well).
-                    origin = Point(self.vertex(0).point_cross(&self.vertex(i)).normalize());
-                } else if self.vertex(i).angle(&self.vertex(0).0) < MAX_LENGTH {
+                    origin = Point(self.vertex(0).0.cross(&self.vertex(i)).normalize());
+                } else if self.vertex(i).0.angle(&self.vertex(0).0).0 < MAX_LENGTH {
                     // All edges of the triangle (O, V_0, V_i) are stable, so we can
                     // revert to using V_0 as the origin.
                     origin = self.vertex(0);
@@ -1725,7 +1662,7 @@ impl Loop {
                     // perpendicular. Therefore V_0.CrossProd(O) is approximately
                     // perpendicular to all of {O, V_0, V_i, V_i+1}, and we can choose
                     // this point O' as the new origin.
-                    origin = Point(self.vertex(0).0.cross(&old_origin.0));
+                    origin = Point(self.vertex(0).cross(&old_origin));
 
                     // Advance the edge (V_0,O) to (V_0,O').
                     sum += f(self.vertex(0), old_origin, origin);
