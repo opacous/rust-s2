@@ -20,7 +20,7 @@ pub mod predicates;
 pub mod shape;
 
 // TODO: Disable to allow testing of other modules
-pub mod loops;
+pub mod r#loop;
 
 mod edge_crosser;
 mod edge_crossings;

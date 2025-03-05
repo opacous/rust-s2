@@ -644,7 +644,7 @@ pub struct ShapeIndex {
 
 impl ShapeIndex {
     pub(crate) fn num_shapes(&self) -> usize {
-        todo!()
+        self.index_data.read().unwrap().shapes.len()
     }
 }
 

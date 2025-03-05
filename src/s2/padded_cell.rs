@@ -115,6 +115,9 @@ impl PaddedCell {
                 Interval::new(-padding, padding).into(),
                 Interval::new(-padding, padding).into(),
             );
+
+            // panic!("ID IS: {}", id);
+
             return PaddedCell {
                 id,
                 padding,
@@ -135,6 +138,8 @@ impl PaddedCell {
 
         // Get the bound in (u,v) coordinate space
         let uv_bound = Self::ij_level_to_bound_uv(i, j, level as i32).expanded_by_margin(padding);
+
+        // panic!("{}", id);
 
         PaddedCell {
             id,
@@ -276,11 +281,12 @@ impl PaddedCell {
         let mut i = self.i_lo;
         let mut j = self.j_lo;
         if self.orientation & INVERT_MASK != 0 {
-            let ij_size = size_ij(self.level as i32 as u64);
+            let ij_size = size_ij(self.level as u64);
             i += ij_size as i32;
             j += ij_size as i32;
         }
-        s2::stuv::face_siti_to_xyz(self.id.face(), (2 * i) as u64, (2 * j) as u64).normalize()
+        // Convert to u64 before multiplication to avoid overflow
+        s2::stuv::face_siti_to_xyz(self.id.face(), (i as u64) * 2, (j as u64) * 2).normalize()
     }
 
     /// Returns the vertex where the space-filling curve exits this cell.
@@ -289,13 +295,14 @@ impl PaddedCell {
         // inverted but not both, in which case it exits at the (0,1) vertex.
         let mut i = self.i_lo;
         let mut j = self.j_lo;
-        let ij_size = size_ij(self.level as i32 as u64);
+        let ij_size = size_ij(self.level as u64);
         if self.orientation == 0 || self.orientation == SWAP_MASK + INVERT_MASK {
             i += ij_size as i32;
         } else {
             j += ij_size as i32;
         }
-        s2::stuv::face_siti_to_xyz(self.id.face(), (2 * i) as u64, (2 * j) as u64).normalize()
+        // Convert to u64 before multiplication to avoid overflow
+        s2::stuv::face_siti_to_xyz(self.id.face(), (i as u64) * 2, (j as u64) * 2).normalize()
     }
 
     /// Returns the smallest CellID that contains all descendants of this
@@ -394,6 +401,7 @@ impl PaddedCell {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::consts::EPSILON;
     use crate::r2::rect::Rect as R2Rect;
     use crate::s2::cellid::CellID;
@@ -401,7 +409,6 @@ mod tests {
     use crate::s2::stuv::face_siti_to_xyz;
     use rand::Rng;
     use std::f64;
-    use super::*;
 
     #[test]
     fn test_padded_cell_from_cell_id() {
@@ -455,85 +462,210 @@ mod tests {
     //     );
     // }
 
-    
+    #[test]
+    fn test_trivial_padded_cell_methods() {
+        // Test the PaddedCell methods that have approximate Cell equivalents.
+        let cid = CellID(0x85dac80c08257ff0);
+        println!("{:#x}", cid.0);
+        let padding = (1e-15_f64).powf(0.9);
+        let cell = s2::cell::Cell::from(cid);
+        let p_cell = PaddedCell::from_cell_id(cid, padding);
+
+        assert_eq!(cell.id, p_cell.id, "cell_id mismatch");
+        assert_eq!(cell.id.level(), p_cell.level() as u64, "level mismatch");
+        assert_eq!(padding, p_cell.padding(), "padding mismatch");
+
+        assert_eq!(
+            p_cell.bound(),
+            cell.bound_uv().expanded_by_margin(padding),
+            "bound mismatch"
+        );
+
+        let r = R2Rect::from_points(&[cell.id.center_uv()]).expanded_by_margin(padding);
+        assert_eq!(r, p_cell.middle(), "middle mismatch");
+
+        assert_eq!(cell.id.center_point(), p_cell.center(), "center mismatch");
+
+        if cid.is_leaf() {
+            return;
+        }
+
+        let children = cell.children().unwrap();
+        for pos in 0..4 {
+            let (i, j) = p_cell.child_ij(pos);
+            println!("{}th child now!", pos);
+
+            let cell_child = &children[pos as usize];
+            let p_cell_child = PaddedCell::from_parent_ij(&p_cell, i, j);
+
+            assert_eq!(cell_child.id, p_cell_child.id, "child cell_id mismatch");
+            assert_eq!(
+                cell_child.id.level(),
+                p_cell_child.level() as u64,
+                "child level mismatch"
+            );
+            assert_eq!(padding, p_cell_child.padding(), "child padding mismatch");
+
+            println!("child x lo: {:.64}", p_cell_child.bound().x.lo);
+            println!("child x.hi: {:.64}", p_cell_child.bound().x.hi);
+            println!("child y lo: {:.64}", p_cell_child.bound().y.lo);
+            println!("child y hi: {:.64}", p_cell_child.bound().y.hi);
+
+            println!(
+                "cell child bound with margin expansion - x lo: {:.64}",
+                cell_child.bound_uv().expanded_by_margin(padding).x.lo
+            );
+            println!(
+                "cell child bound with margin expansion - x.hi: {:.64}",
+                cell_child.bound_uv().expanded_by_margin(padding).x.hi
+            );
+            println!(
+                "cell child bound with margin expansion - y lo: {:.64}",
+                cell_child.bound_uv().expanded_by_margin(padding).y.lo
+            );
+            println!(
+                "cell child bound with margin expansion - y hi: {:.64}",
+                cell_child.bound_uv().expanded_by_margin(padding).y.hi
+            );
+
+            assert_eq!(
+                p_cell_child.bound(),
+                cell_child.bound_uv().expanded_by_margin(padding),
+                "child bound mismatch"
+            );
+
+            let r = R2Rect::from_points(&[cell_child.id.center_uv()]).expanded_by_margin(padding);
+            // Using approx_equal instead of direct equality for floating point
+            assert!(r.approx_eq(&p_cell_child.middle()), "child middle mismatch");
+
+            assert_eq!(
+                cell_child.id.center_point(),
+                p_cell_child.center(),
+                "child center mismatch"
+            );
+        }
+    }
+
     #[test]
     fn test_padded_cell_methods() {
         // Test the PaddedCell methods that have approximate Cell equivalents.
         let mut rng = random::rng();
-        
+
         for _ in 0..1000 {
             let cid = random::cellid(&mut rng);
+            println!("{:#x}", cid.0);
             let padding = (1e-15_f64).powf(rng.gen_range(0.0..1.0));
             let cell = s2::cell::Cell::from(cid);
             let p_cell = PaddedCell::from_cell_id(cid, padding);
-            
+
             assert_eq!(cell.id, p_cell.id, "cell_id mismatch");
             assert_eq!(cell.id.level(), p_cell.level() as u64, "level mismatch");
             assert_eq!(padding, p_cell.padding(), "padding mismatch");
-            
+
             assert_eq!(
-                p_cell.bound(), 
+                p_cell.bound(),
                 cell.bound_uv().expanded_by_margin(padding),
                 "bound mismatch"
             );
-            
+
             let r = R2Rect::from_points(&[cell.id.center_uv()]).expanded_by_margin(padding);
             assert_eq!(r, p_cell.middle(), "middle mismatch");
-            
+
             assert_eq!(cell.id.center_point(), p_cell.center(), "center mismatch");
-            
+
             if cid.is_leaf() {
                 continue;
             }
-            
+
             let children = cell.children().unwrap();
             for pos in 0..4 {
                 let (i, j) = p_cell.child_ij(pos);
-                
+
                 let cell_child = &children[pos as usize];
                 let p_cell_child = PaddedCell::from_parent_ij(&p_cell, i, j);
-                
+
                 assert_eq!(cell_child.id, p_cell_child.id, "child cell_id mismatch");
-                assert_eq!(cell_child.id.level(), p_cell_child.level() as u64, "child level mismatch");
-                assert_eq!(padding, p_cell_child.padding(), "child padding mismatch");
-                
                 assert_eq!(
-                    p_cell_child.bound(), 
+                    cell_child.id.level(),
+                    p_cell_child.level() as u64,
+                    "child level mismatch"
+                );
+                assert_eq!(padding, p_cell_child.padding(), "child padding mismatch");
+
+                assert_eq!(
+                    p_cell_child.bound(),
                     cell_child.bound_uv().expanded_by_margin(padding),
                     "child bound mismatch"
                 );
-                
-                let r = R2Rect::from_points(&[cell_child.id.center_uv()]).expanded_by_margin(padding);
+
+                let r =
+                    R2Rect::from_points(&[cell_child.id.center_uv()]).expanded_by_margin(padding);
                 // Using approx_equal instead of direct equality for floating point
                 assert!(r.approx_eq(&p_cell_child.middle()), "child middle mismatch");
-                
-                assert_eq!(cell_child.id.center_point(), p_cell_child.center(), "child center mismatch");
+
+                assert_eq!(
+                    cell_child.id.center_point(),
+                    p_cell_child.center(),
+                    "child center mismatch"
+                );
             }
         }
     }
-    
+
+    #[test]
+    fn test_trivial_exit_vertices() {
+        let id = CellID(0x3000000000000000);
+        let unpadded = PaddedCell::from_cell_id(id, 0.0);
+        println!("{:?}", unpadded);
+        let padded = PaddedCell::from_cell_id(id, 0.5);
+        println!("{:?}", padded);
+
+        // Check that entry/exit vertices do not depend on padding
+        assert_eq!(
+            unpadded.entry_vertex(),
+            padded.entry_vertex(),
+            "entry vertex should not depend on padding"
+        );
+
+        assert_eq!(
+            unpadded.exit_vertex(),
+            padded.exit_vertex(),
+            "exit vertex should not depend on padding"
+        );
+
+        // Check that the exit vertex of one cell is the same as the entry vertex
+        // of the immediately following cell. This also tests wrapping from the
+        // end to the start of the CellID curve with high probability.
+        assert_eq!(
+            unpadded.exit_vertex(),
+            PaddedCell::from_cell_id(id.next_wrap(), 0.0).entry_vertex(),
+            "exit vertex should match next cell's entry vertex"
+        );
+    }
+
     #[test]
     fn test_padded_cell_entry_exit_vertices() {
         let mut rng = random::rng();
-        
+
         for _ in 0..1000 {
             let id = random::cellid(&mut rng);
+            println!("{:#x}", id.0);
             let unpadded = PaddedCell::from_cell_id(id, 0.0);
             let padded = PaddedCell::from_cell_id(id, 0.5);
-            
+
             // Check that entry/exit vertices do not depend on padding
             assert_eq!(
-                unpadded.entry_vertex(), 
+                unpadded.entry_vertex(),
                 padded.entry_vertex(),
                 "entry vertex should not depend on padding"
             );
-            
+
             assert_eq!(
-                unpadded.exit_vertex(), 
+                unpadded.exit_vertex(),
                 padded.exit_vertex(),
                 "exit vertex should not depend on padding"
             );
-            
+
             // Check that the exit vertex of one cell is the same as the entry vertex
             // of the immediately following cell. This also tests wrapping from the
             // end to the start of the CellID curve with high probability.
@@ -542,19 +674,19 @@ mod tests {
                 PaddedCell::from_cell_id(id.next_wrap(), 0.0).entry_vertex(),
                 "exit vertex should match next cell's entry vertex"
             );
-            
+
             // Check that the entry vertex of a cell is the same as the entry vertex
             // of its first child, and similarly for the exit vertex.
             if id.is_leaf() {
                 continue;
             }
-            
+
             assert_eq!(
                 unpadded.entry_vertex(),
                 PaddedCell::from_cell_id(id.children()[0], 0.0).entry_vertex(),
                 "entry vertex should match first child's entry vertex"
             );
-            
+
             assert_eq!(
                 unpadded.exit_vertex(),
                 PaddedCell::from_cell_id(id.children()[3], 0.0).exit_vertex(),
@@ -562,55 +694,59 @@ mod tests {
             );
         }
     }
-    
+
     #[test]
     fn test_padded_cell_shrink_to_fit() {
         let mut rng = random::rng();
-        
+
         for _ in 0..1000 {
             // Start with the desired result and work backwards
             let result = random::cellid(&mut rng);
             let result_uv = result.bound_uv();
             let size_uv = result_uv.size();
-            
+
             // Find the biggest rectangle that fits in "result" after padding
             let max_padding = 0.5 * f64::min(size_uv.x, size_uv.y);
             let padding = max_padding * rng.gen_range(0.0..1.0);
             let max_rect = result_uv.expanded_by_margin(-padding);
-            
+
             // Start with a random subset of the maximum rectangle
             let mut a = R2Point::new(
                 rng.gen_range(max_rect.x.lo..max_rect.x.hi),
                 rng.gen_range(max_rect.y.lo..max_rect.y.hi),
             );
-            
+
             let mut b = R2Point::new(
                 rng.gen_range(max_rect.x.lo..max_rect.x.hi),
                 rng.gen_range(max_rect.y.lo..max_rect.y.hi),
             );
-            
+
             if !result.is_leaf() {
                 // If the result is not a leaf cell, we must ensure that no child of
                 // result also satisfies the conditions of ShrinkToFit(). We do this
                 // by ensuring that rect intersects at least two children of result
                 // (after padding).
                 let use_y = random::one_in(&mut rng, 2);
-                let center = if use_y { 
-                    result.center_uv().y 
-                } else { 
-                    result.center_uv().x 
+                let center = if use_y {
+                    result.center_uv().y
+                } else {
+                    result.center_uv().x
                 };
-                
+
                 // Find the range of coordinates that are shared between child cells
                 // along that axis.
                 let shared = if use_y {
-                    max_rect.y.intersection(&(center - padding..center + padding).into())
+                    max_rect
+                        .y
+                        .intersection(&(center - padding..center + padding).into())
                 } else {
-                    max_rect.x.intersection(&(center - padding..center + padding).into())
+                    max_rect
+                        .x
+                        .intersection(&(center - padding..center + padding).into())
                 };
-                
+
                 let mid = rng.gen_range(shared.lo..shared.hi);
-                
+
                 if use_y {
                     a.y = rng.gen_range(max_rect.y.lo..mid);
                     b.y = rng.gen_range(mid..max_rect.y.hi);
@@ -619,15 +755,15 @@ mod tests {
                     b.x = rng.gen_range(mid..max_rect.x.hi);
                 }
             }
-            
+
             let rect = R2Rect::from_points(&[a, b]);
-            
+
             // Choose an arbitrary ancestor as the PaddedCell
             let initial_id = result.parent(rng.gen_range(0..=result.level()));
             let p_cell = PaddedCell::from_cell_id(initial_id, padding);
-            
+
             assert_eq!(
-                p_cell.shrink_to_fit(&rect), 
+                p_cell.shrink_to_fit(&rect),
                 result,
                 "shrink_to_fit returned incorrect cell"
             );
