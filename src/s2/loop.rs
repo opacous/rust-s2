@@ -199,8 +199,15 @@ const FULL_LOOP_POINT: Point = Point(R3Vector {
 });
 
 impl Debug for Loop {
-    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(/* &str */ "Loop")
+            .field("vertices", &self.vertices)
+            .field("origin_inside", &self.origin_inside)
+            .field("depth", &self.depth)
+            .field("bound", &self.bound)
+            .field("subregion_bound", &self.subregion_bound)
+            // Ignoring index
+            .finish()
     }
 }
 
@@ -1999,6 +2006,7 @@ fn signed_area(a: Point, b: Point, c: Point) -> f64 {
 mod tests {
     use super::*;
     use crate::consts::f64_eq;
+    use crate::r1::interval::Interval;
     use crate::r3::vector::{Vector as R3Vector, Vector};
     use crate::s1::angle::Angle;
     use crate::s1::Deg;
@@ -2007,15 +2015,16 @@ mod tests {
     use crate::s2::point::Point;
     use crate::s2::shape::Shape;
 
+    use crate::crossing_edge_query::CrossingType;
+    use crate::latlng::LatLng;
+    use crate::s2::edge_crossings::Crossing;
     use std::convert::TryInto;
     use std::f64::consts::PI;
-    use crate::latlng::LatLng;
 
     // Helper function to create a test loop from coordinates
     fn make_loop(s: &str) -> Loop {
         if s == "full" {
             Loop::full()
-
         } else if s == "empty" {
             Loop::empty()
         } else {
@@ -2031,14 +2040,19 @@ mod tests {
             if pair.is_empty() {
                 continue;
             }
-            let mut parts : Vec<&str> = pair.split(':').collect();
+            let mut parts: Vec<&str> = pair
+                .split(':')
+                .collect::<Vec<&str>>()
+                .into_iter()
+                .map(|s| s.trim())
+                .collect();
 
             if parts.len() != 2 {
-                 continue;
+                continue;
             }
 
-            let lat_float : f64 = parts[0].parse().unwrap();
-            let lng_float : f64 = parts[1].parse().unwrap();
+            let lat_float: f64 = parts[0].parse().unwrap();
+            let lng_float: f64 = parts[1].parse().unwrap();
             result.push(LatLng::from_degrees(lat_float, lng_float));
         }
         result
@@ -2074,6 +2088,22 @@ mod tests {
                 Point(R3Vector { x, y, z })
             })
             .collect();
+        Loop::from_points(vertices)
+    }
+
+    fn rotate(l: &Loop) -> Loop {
+        if l.is_empty_or_full() {
+            return l.clone();
+        }
+
+        let mut vertices = Vec::new();
+        // Skip the first vertex and copy the rest
+        for i in 1..l.num_vertices() {
+            vertices.push(l.vertex(i));
+        }
+        // Add the first vertex at the end
+        vertices.push(l.vertex(0));
+
         Loop::from_points(vertices)
     }
 
@@ -2123,7 +2153,9 @@ mod tests {
 
     // A spiral stripe that slightly over-wraps the equator.
     fn candy_cane() -> Loop {
-        Loop::from_points(parse_points("-20:150, -20:-70, 0:70, 10:-150, 10:70, -10:-70"))
+        Loop::from_points(parse_points(
+            "-20:150, -20:-70, 0:70, 10:-150, 10:70, -10:-70",
+        ))
     }
 
     // A small clockwise loop in the northern & eastern hemisperes.
@@ -2205,7 +2237,9 @@ mod tests {
     // A shape gotten from A by adding a triangle to one edge, and
     // adding another triangle to the opposite edge.
     fn loop_d() -> Loop {
-        Loop::from_points(parse_points("0:178, -1:178, -1:180, 0:-179, 1:-179, 1:-180"))
+        Loop::from_points(parse_points(
+            "0:178, -1:178, -1:180, 0:-179, 1:-179, 1:-180",
+        ))
     }
 
     //   3------------2
@@ -2228,29 +2262,36 @@ mod tests {
 
     // Loop E:  0,6,9,a,d,1,2,3
     fn loop_e() -> Loop {
-        Loop::from_points(parse_points("0:30, 0:34, 0:36, 0:39, 0:41, 0:44, 30:44, 30:30"))
+        Loop::from_points(parse_points(
+            "0:30, 0:34, 0:36, 0:39, 0:41, 0:44, 30:44, 30:30",
+        ))
     }
 
     // Loop F:  0,4,5,1,d,a,9,6
     fn loop_f() -> Loop {
-        Loop::from_points(parse_points("0:30, -30:30, -30:44, 0:44, 0:41, 0:39, 0:36, 0:34"))
+        Loop::from_points(parse_points(
+            "0:30, -30:30, -30:44, 0:44, 0:41, 0:39, 0:36, 0:34",
+        ))
     }
 
     // Loop G:  0,6,7,8,9,a,b,c,d,1,2,3
     fn loop_g() -> Loop {
-        Loop::from_points(parse_points("0:30, 0:34, 10:34, 10:36, 0:36, 0:39, 10:39, 10:41, 0:41, 0:44, 30:44, 30:30"))
+        Loop::from_points(parse_points(
+            "0:30, 0:34, 10:34, 10:36, 0:36, 0:39, 10:39, 10:41, 0:41, 0:44, 30:44, 30:30",
+        ))
     }
 
     // Loop H:  0,6,f,e,9,a,b,c,d,1,2,3
     fn loop_h() -> Loop {
-        Loop::from_points(parse_points("0:30, 0:34, -10:34, -10:36, 0:36, 0:39, 10:39, 10:41, 0:41, 0:44, 30:44, 30:30"))
+        Loop::from_points(parse_points(
+            "0:30, 0:34, -10:34, -10:36, 0:36, 0:39, 10:39, 10:41, 0:41, 0:44, 30:44, 30:30",
+        ))
     }
 
     // Loop I:  7,6,f,e,9,8
     fn loop_i() -> Loop {
         Loop::from_points(parse_points("10:34, 0:34, -10:34, -10:36, 0:36, 10:36"))
     }
-
 
     // The set of all test loops.
     fn all_loops() -> Vec<Loop> {
@@ -2287,8 +2328,7 @@ mod tests {
         ]
     }
 
-
-#[test]
+    #[test]
     fn test_loop_empty() {
         let loop_empty = empty_loop();
         assert!(loop_empty.is_empty());
@@ -2313,29 +2353,69 @@ mod tests {
     #[test]
     fn test_loop_basic() {
         let shape = ShapeType::Loop(make_loop("0:0, 0:1, 1:0"));
+        println!("{:?}", shape);
 
         // Verify edge count and basic properties
-        assert_eq!(shape.num_edges(), 3, "shape.num_edges() = {}, want {}", shape.num_edges(), 3);
-        assert_eq!(shape.num_chains(), 1, "shape.num_chains() = {}, want {}", shape.num_chains(), 1);
+        assert_eq!(
+            shape.num_edges(),
+            3,
+            "shape.num_edges() = {}, want {}",
+            shape.num_edges(),
+            3
+        );
+        assert_eq!(
+            shape.num_chains(),
+            1,
+            "shape.num_chains() = {}, want {}",
+            shape.num_chains(),
+            1
+        );
 
         // Check chain properties
         let chain = shape.chain(0);
-        assert_eq!(chain.start, 0, "shape.chain(0).start = {}, want {}", chain.start, 0);
-        assert_eq!(chain.length, 3, "shape.chain(0).length = {}, want {}", chain.length, 3);
+        assert_eq!(
+            chain.start, 0,
+            "shape.chain(0).start = {}, want {}",
+            chain.start, 0
+        );
+        assert_eq!(
+            chain.length, 3,
+            "shape.chain(0).length = {}, want {}",
+            chain.length, 3
+        );
 
         // Check edge properties
         let e = shape.edge(2);
         let want_v0 = Point::from(LatLng::from_degrees(1.0, 0.0));
         let want_v1 = Point::from(LatLng::from_degrees(0.0, 0.0));
 
-        assert!(e.v0.approx_eq(&want_v0), "shape.edge(2) end A = {:?}, want {:?}", e.v0, want_v0);
-        assert!(e.v1.approx_eq(&want_v1), "shape.edge(2) end B = {:?}, want {:?}", e.v1, want_v1);
+        assert!(
+            e.v0.approx_eq(&want_v0),
+            "shape.edge(2) end A = {:?}, want {:?}",
+            e.v0,
+            want_v0
+        );
+        assert!(
+            e.v1.approx_eq(&want_v1),
+            "shape.edge(2) end B = {:?}, want {:?}",
+            e.v1,
+            want_v1
+        );
 
         // Check other properties
-        assert_eq!(shape.dimension(), 2, "shape.dimension() = {}, want {}", shape.dimension(), 2);
+        assert_eq!(
+            shape.dimension(),
+            2,
+            "shape.dimension() = {}, want {}",
+            shape.dimension(),
+            2
+        );
         assert!(!shape.is_empty(), "shape.is_empty() = true, want false");
         assert!(!shape.is_full(), "shape.is_full() = true, want false");
-        assert!(!shape.reference_point().contained, "shape.reference_point().contained = true, want false");
+        assert!(
+            !shape.reference_point().contained,
+            "shape.reference_point().contained = true, want false"
+        );
     }
 
     #[test]
@@ -2368,40 +2448,90 @@ mod tests {
 
     #[test]
     fn test_loop_rect_bound() {
-        let rect_error = crate::s2::rectbounder::new_rect_bounder().max_error_for_tests();
+        // TODO: Get this from rect instead
 
-        assert!(empty_loop().bound.is_empty(), "empty loop's RectBound should be empty");
-        assert!(full_loop().bound.is_full(), "full loop's RectBound should be full");
-        assert!(candy_cane().bound.lng.is_full(), "candy cane loop's RectBound should have a full longitude range");
+        // TODO: Isolate these out into test util in independen
+        pub fn max_error_for_tests() -> LatLng {
+            // The maximum error in the latitude calculation is
+            //    3.84 * DBL_EPSILON   for the cross product calculation (see above)
+            //    0.96 * DBL_EPSILON   for the Latitude() calculation
+            //    5    * DBL_EPSILON   added by add_point/get_bound to compensate for error
+            //    ------------------
+            //    9.80 * DBL_EPSILON   maximum error in result
+            //
+            // The maximum error in the longitude calculation is DBL_EPSILON. get_bound()
+            // does not do any expansion because this isn't necessary in order to
+            // bound the *rounded* longitudes of contained points.
+            return LatLng::from_radians(10. * DBL_EPSILON, 1. * DBL_EPSILON);
+        }
+        let rect_error = max_error_for_tests();
+
+        assert!(
+            empty_loop().bound.is_empty(),
+            "empty loop's RectBound should be empty"
+        );
+        assert!(
+            full_loop().bound.is_full(),
+            "full loop's RectBound should be full"
+        );
+        assert!(
+            candy_cane().bound.lng.is_full(),
+            "candy cane loop's RectBound should have a full longitude range"
+        );
 
         let candy_lat_lo = candy_cane().bound.lat.lo;
-        assert!(candy_lat_lo < -0.349066,
-                "candy cane loop's RectBound should have a lower latitude ({}) under -0.349066 radians",
-                candy_lat_lo);
+        assert!(
+            candy_lat_lo < -0.349066,
+            "candy cane loop's RectBound should have a lower latitude ({}) under -0.349066 radians",
+            candy_lat_lo
+        );
 
         let candy_lat_hi = candy_cane().bound.lat.hi;
-        assert!(candy_lat_hi > 0.174533,
-                "candy cane loop's RectBound should have an upper latitude ({}) over 0.174533 radians",
-                candy_lat_hi);
+        assert!(
+            candy_lat_hi > 0.174533,
+            "candy cane loop's RectBound should have an upper latitude ({}) over 0.174533 radians",
+            candy_lat_hi
+        );
 
-        assert!(small_necw().bound.is_full(), "small northeast clockwise loop's RectBound should be full");
+        assert!(
+            small_necw().bound.is_full(),
+            "small northeast clockwise loop's RectBound should be full"
+        );
 
         let arctic_bound = arctic80().bound;
-        let arctic_want = crate::s2::rect::rect_from_degrees(80.0, -180.0, 90.0, 180.0);
-        assert!(rects_approx_equal(&arctic_bound, &arctic_want, rect_error.lat.radians(), rect_error.lng.radians()),
-                "arctic 80 loop's RectBound ({:?}) should be {:?}", arctic_bound, arctic_want);
+        let arctic_want = crate::s2::rect::Rect::from_degrees(80.0, -180.0, 90.0, 180.0);
+        assert!(
+            Rect::approx_eq_by(&arctic_bound, &arctic_want, &rect_error),
+            "arctic 80 loop's RectBound ({:?}) should be {:?}",
+            arctic_bound,
+            arctic_want
+        );
 
         let antarctic_bound = antarctic80().bound;
-        let antarctic_want = crate::s2::rect::rect_from_degrees(-90.0, -180.0, -80.0, 180.0);
-        assert!(rects_approx_equal(&antarctic_bound, &antarctic_want, rect_error.lat.radians(), rect_error.lng.radians()),
-                "antarctic 80 loop's RectBound ({:?}) should be {:?}", antarctic_bound, antarctic_want);
+        let antarctic_want = crate::s2::rect::Rect::from_degrees(-90.0, -180.0, -80.0, 180.0);
+        assert!(
+            Rect::approx_eq_by(&antarctic_bound, &antarctic_want, &rect_error),
+            "antarctic 80 loop's RectBound ({:?}) should be {:?}",
+            antarctic_bound,
+            antarctic_want
+        );
 
-        assert!(south_hemi().bound.lng.is_full(), "south hemi loop's RectBound should have a full longitude range");
+        assert!(
+            south_hemi().bound.lng.is_full(),
+            "south hemi loop's RectBound should have a full longitude range"
+        );
 
         let south_lat = south_hemi().bound.lat;
-        let want_lat = crate::s1::interval::Interval { lo: -PI / 2.0, hi: 0.0 };
-        assert!(r1_intervals_approx_equal(&south_lat, &want_lat, rect_error.lat.radians()),
-                "south hemi loop's RectBound latitude interval ({:?}) should be {:?}", south_lat, want_lat);
+        let want_lat = crate::r1::interval::Interval {
+            lo: -PI / 2.0,
+            hi: 0.0,
+        };
+        assert!(
+            Interval::approx_eq_by(&south_lat, &want_lat, rect_error.lat.rad()),
+            "south hemi loop's RectBound latitude interval ({:?}) should be {:?}",
+            south_lat,
+            want_lat
+        );
 
         // Create a loop that contains the complement of the arctic80 loop
         let mut arctic80_inv = arctic80();
@@ -2410,43 +2540,105 @@ mod tests {
         // The highest latitude of each edge is attained at its midpoint
         let v0 = arctic80_inv.vertex(0).0;
         let v1 = arctic80_inv.vertex(1).0;
-        let mid = Point(v0.add(&v1).mul(0.5));
+        let mid = Point(v0.add(v1).mul(0.5));
 
         let lat_hi = arctic80_inv.bound.lat.hi;
         let want_lat_hi = LatLng::from(mid).lat.rad();
-        assert!(f64_eq(lat_hi, want_lat_hi, 10.0 * DBL_EPSILON),
-                "arctic 80 inverse loop's RectBound should have a latitude hi of {}, got {}", want_lat_hi, lat_hi);
+        assert_f64_eq!(
+            lat_hi,
+            want_lat_hi,
+            10.0 * DBL_EPSILON,
+            format!(
+                "arctic 80 inverse loop's RectBound should have a latitude hi of {}, got {}",
+                want_lat_hi, lat_hi
+            )
+        );
     }
-
     #[test]
     fn test_loop_cap_bound() {
-        // Test that cap bounds work as expected on basic cases
-        let north = north_pole_loop();
-        let cap = north.cap_bound();
-        assert!(cap.contains_point(&Point(R3Vector {
-            x: 0.0,
-            y: 0.0,
-            z: 1.0
-        }))); // North pole
+        assert!(
+            empty_loop().cap_bound().is_empty(),
+            "empty loop's CapBound should be empty"
+        );
+        assert!(
+            full_loop().cap_bound().is_full(),
+            "full loop's CapBound should be full"
+        );
+        assert!(
+            small_necw().cap_bound().is_full(),
+            "small northeast clockwise loop's CapBound should be full"
+        );
 
-        let south = south_hemisphere_loop();
-        let cap = south.cap_bound();
-        assert!(cap.contains_point(&Point(R3Vector {
-            x: 0.0,
-            y: 0.0,
-            z: -1.0
-        }))); // South pole
+        let got = arctic80().cap_bound();
+        let want = crate::s2::rect::Rect::from_degrees(80.0, -180.0, 90.0, 180.0).cap_bound();
+        assert!(
+            got.approx_eq(&want),
+            "arctic 80 loop's CapBound ({:?}) should be {:?}",
+            got,
+            want
+        );
+
+        let got = antarctic80().cap_bound();
+        let want = crate::s2::rect::Rect::from_degrees(-90.0, -180.0, -80.0, 180.0).cap_bound();
+        assert!(
+            got.approx_eq(&want),
+            "antarctic 80 loop's CapBound ({:?}) should be {:?}",
+            got,
+            want
+        );
     }
 
     #[test]
     fn test_loop_origin_inside() {
-        // Test that origin containment matches expectations
-        assert!(!empty_loop().contains_origin());
-        assert!(full_loop().contains_origin());
-        assert!(!north_pole_loop().contains_origin()); // Origin is at center of Earth, not north pole
-        assert!(south_hemisphere_loop().contains_origin()); // South hemisphere should contain origin
+        assert!(
+            north_hemi().contains_origin(),
+            "north hemisphere polygon should include origin"
+        );
+        assert!(
+            north_hemi3().contains_origin(),
+            "north hemisphere 3 polygon should include origin"
+        );
+        assert!(
+            !south_hemi().contains_origin(),
+            "south hemisphere polygon should not include origin"
+        );
+        assert!(
+            !west_hemi().contains_origin(),
+            "west hemisphere polygon should not include origin"
+        );
+        assert!(
+            east_hemi().contains_origin(),
+            "east hemisphere polygon should include origin"
+        );
+        assert!(
+            !near_hemi().contains_origin(),
+            "near hemisphere polygon should not include origin"
+        );
+        assert!(
+            far_hemi().contains_origin(),
+            "far hemisphere polygon should include origin"
+        );
+        assert!(
+            !candy_cane().contains_origin(),
+            "candy cane polygon should not include origin"
+        );
+        assert!(
+            small_necw().contains_origin(),
+            "smallNECW polygon should include origin"
+        );
+        assert!(
+            arctic80().contains_origin(),
+            "arctic 80 polygon should include origin"
+        );
+        assert!(
+            !antarctic80().contains_origin(),
+            "antarctic 80 polygon should not include origin"
+        );
+        assert!(
+            !loop_a().contains_origin(),
+            "loop A polygon should not include origin"
+        );
     }
-
     #[test]
     fn test_loop_contains_point() {
         let north = Point(Vector {
@@ -2470,7 +2662,7 @@ mod tests {
 
         assert!(
             full_loop().contains_point(south),
-            "Empty loop should not contain north pole or any point!"
+            "Full loop should contain south pole and all points"
         );
 
         struct TestCase {
@@ -2480,1500 +2672,636 @@ mod tests {
             output: Point,
         }
 
+        // Helper function to rotate a loop by moving the first vertex to the end
+
         let test_cases = vec![
             TestCase {
                 name: "north hemisphere",
                 l: north_hemi(),
                 input: north,
+                output: south,
+            },
+            TestCase {
+                name: "south hemisphere",
+                l: south_hemi(),
+                input: south,
                 output: north,
             },
-        ]
+            TestCase {
+                name: "west hemisphere",
+                l: west_hemi(),
+                input: west,
+                output: east,
+            },
+            TestCase {
+                name: "east hemisphere",
+                l: east_hemi(),
+                input: east,
+                output: west,
+            },
+            TestCase {
+                name: "candy cane",
+                l: candy_cane(),
+                input: Point::from(LatLng::from_degrees(5.0, 71.0)),
+                output: Point::from(LatLng::from_degrees(-8.0, 71.0)),
+            },
+        ];
 
+        for test_case in &test_cases {
+            let mut l = test_case.l.clone();
+            for i in 0..4 {
+                assert!(
+                    l.contains_point(test_case.input),
+                    "{} loop should contain {:?} at rotation {}",
+                    test_case.name,
+                    test_case.input,
+                    i
+                );
+                assert!(
+                    !l.contains_point(test_case.output),
+                    "{} loop shouldn't contain {:?} at rotation {}",
+                    test_case.name,
+                    test_case.output,
+                    i
+                );
+                l = rotate(&l);
+            }
+        }
+
+        // Check that each cell vertex is contained by exactly one of the adjacent cells
+        for level in 0..3 {
+            // Map of unique points across all loops at this level
+            let mut points = std::collections::HashMap::<Point, bool>::new();
+            let mut loops = Vec::<Loop>::new();
+
+            // Iterate over all cells at this level
+            let start_id = CellID::from_face(0).child_begin_at_level(level as u64);
+            let end_id = CellID::from_face(5).child_end_at_level(level as u64);
+
+            let mut id = start_id;
+            while id != end_id {
+                let cell = Cell::from(id);
+
+                // Add cell center to points
+                points.insert(cell.center(), true);
+
+                // Add all vertices of the cell
+                let mut vertices = Vec::new();
+                for k in 0..4 {
+                    vertices.push(cell.vertex(k));
+                    points.insert(cell.vertex(k), true);
+                }
+
+                loops.push(Loop::from_points(vertices));
+                id = id.next();
+            }
+
+            // Check that each point is contained by exactly one loop
+            for (point, _) in points.iter() {
+                let mut count = 0;
+                for loop_under_test in &loops {
+                    if loop_under_test.contains_point(*point) {
+                        count += 1;
+                    }
+                }
+
+                assert_eq!(
+                    count, 1,
+                    "point {:?} should only be contained by one loop at level {}, got {}",
+                    point, level, count
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_loop_vertex() {
+        let tests = vec![
+            (empty_loop(), 0, Point(R3Vector::new(0.0, 0.0, 1.0))),
+            (empty_loop(), 1, Point(R3Vector::new(0.0, 0.0, 1.0))),
+            (full_loop(), 0, Point(R3Vector::new(0.0, 0.0, -1.0))),
+            (full_loop(), 1, Point(R3Vector::new(0.0, 0.0, -1.0))),
+            (arctic80(), 0, parse_points("80:-150")[0]),
+            (arctic80(), 1, parse_points("80:-30")[0]),
+            (arctic80(), 2, parse_points("80:90")[0]),
+            (arctic80(), 3, parse_points("80:-150")[0]),
+        ];
+
+        for (loop_under_test, vertex, want) in tests {
+            let got = loop_under_test.vertex(vertex);
+            assert!(
+                got.approx_eq(&want),
+                "{:?}.vertex({}) = {:?}, want {:?}",
+                loop_under_test,
+                vertex,
+                got,
+                want
+            );
+        }
+
+        // Check that wrapping is correct.
+        assert!(
+            arctic80().vertex(2).approx_eq(&arctic80().vertex(5)),
+            "Vertex should wrap values. {:?}.vertex(2) = {:?} != {:?}.vertex(5) = {:?}",
+            arctic80(),
+            arctic80().vertex(2),
+            arctic80(),
+            arctic80().vertex(5)
+        );
+
+        let loop_around_thrice = 2 + 3 * arctic80().vertices.len();
+        assert!(
+            arctic80()
+                .vertex(2)
+                .approx_eq(&arctic80().vertex(loop_around_thrice)),
+            "Vertex should wrap values. {:?}.vertex(2) = {:?} != {:?}.vertex({}) = {:?}",
+            arctic80(),
+            arctic80().vertex(2),
+            arctic80(),
+            loop_around_thrice,
+            arctic80().vertex(loop_around_thrice)
+        );
+    }
+
+    #[test]
+    fn test_loop_num_edges() {
+        let tests = vec![
+            (empty_loop(), 0),
+            (full_loop(), 0),
+            (far_hemi(), 4),
+            (candy_cane(), 6),
+            (small_necw(), 3),
+            (arctic80(), 3),
+            (antarctic80(), 3),
+            (line_triangle(), 3),
+            (skinny_chevron(), 4),
+        ];
+
+        for (loop_under_test, want) in tests {
+            let got = loop_under_test.num_edges();
+            assert_eq!(
+                got, want,
+                "{:?}.num_edges() = {}, want {}",
+                loop_under_test, got, want
+            );
+        }
+    }
+
+    #[test]
+    fn test_loop_edge() {
+        let tests = vec![
+            (
+                far_hemi(),
+                2,
+                Point(R3Vector {
+                    x: 0.0,
+                    y: 0.0,
+                    z: -1.0,
+                }),
+                Point(R3Vector {
+                    x: 0.0,
+                    y: -1.0,
+                    z: 0.0,
+                }),
+            ),
+            (
+                candy_cane(),
+                0,
+                parse_points("-20:150")[0],
+                parse_points("-20:-70")[0],
+            ),
+            (
+                candy_cane(),
+                1,
+                parse_points("-20:-70")[0],
+                parse_points("0:70")[0],
+            ),
+            (
+                candy_cane(),
+                2,
+                parse_points("0:70")[0],
+                parse_points("10:-150")[0],
+            ),
+            (
+                candy_cane(),
+                3,
+                parse_points("10:-150")[0],
+                parse_points("10:70")[0],
+            ),
+            (
+                candy_cane(),
+                4,
+                parse_points("10:70")[0],
+                parse_points("-10:-70")[0],
+            ),
+            (
+                candy_cane(),
+                5,
+                parse_points("-10:-70")[0],
+                parse_points("-20:150")[0],
+            ),
+            (
+                skinny_chevron(),
+                2,
+                parse_points("0:1e-320")[0],
+                parse_points("1e-320:80")[0],
+            ),
+            (
+                skinny_chevron(),
+                3,
+                parse_points("1e-320:80")[0],
+                parse_points("0:0")[0],
+            ),
+        ];
+
+        for (loop_under_test, edge, want_a, want_b) in tests {
+            let e = loop_under_test.edge(edge);
+            assert!(
+                e.v0.approx_eq(&want_a) && e.v1.approx_eq(&want_b),
+                "{:?}.edge({}) = {:?}, want ({:?}, {:?})",
+                loop_under_test,
+                edge,
+                e,
+                want_a,
+                want_b
+            );
+        }
     }
 
     #[test]
     fn test_loop_from_cell() {
-        // Create loops from a variety of cells at different levels
-        for level in [0, 3, 7, 15].iter() {
-            let cell_id = CellID::from_face(3).child_begin_at_level(*level as u64);
-            let cell = Cell::from(cell_id);
-            let loop_from_cell = Loop::from_cell(&cell);
+        let cell_id = CellID::from(LatLng::from_degrees(40.565459, -74.645276));
+        let cell = Cell::from(cell_id);
+        let loop_from_cell = Loop::from_cell(&cell);
 
-            // Verify vertex count (cell loops always have 4 vertices)
-            assert_eq!(loop_from_cell.num_vertices(), 4);
-            assert_eq!(loop_from_cell.num_edges(), 4);
-
-            // Verify all cell vertices are present in the loop
-            for i in 0..4 {
-                assert_eq!(loop_from_cell.vertex(i), cell.vertex(i));
-            }
-
-            // Verify containment of cell center
-            assert!(loop_from_cell.contains_point(cell.center()));
-        }
+        // Demonstrates the reason for this test; the cell bounds are more
+        // conservative than the resulting loop bounds.
+        assert!(
+            !loop_from_cell.bound.contains(&cell.rect_bound()),
+            "loop_from_cell's RectBound contains the original cell's RectBound, but should not"
+        );
     }
 
     #[test]
-    fn test_loop_regular() {
-        // Test creating a regular loop with varying numbers of vertices
-        for &num_vertices in &[3, 4, 5, 6, 10, 100] {
-            let center = Point(R3Vector {
-                x: 0.0,
-                y: 0.0,
-                z: 1.0,
-            }); // North pole
-            let radius = Angle::from(Deg(10.0)); // 10 degree radius
-            let loop_regular = Loop::regular_loop(center, radius, num_vertices);
+    fn test_loop_regular_loop() {
+        let center = Point::from(LatLng::from_degrees(80.0, 135.0));
+        let radius = Angle::from(Deg(20.0));
+        let loop_obj = Loop::regular_loop(center, radius, 4);
+        assert_eq!(
+            loop_obj.vertices.len(),
+            4,
+            "RegularLoop with 4 vertices should have 4 vertices, got {}",
+            loop_obj.vertices.len()
+        );
+        // The actual Points values are already tested in the s2point_test method TestRegularPoints.
+    }
 
-            // Verify vertex count
-            assert_eq!(loop_regular.num_vertices(), num_vertices);
-            assert_eq!(loop_regular.num_edges(), num_vertices.try_into().unwrap());
+    // clone_loop creates a new copy of the given loop including all of its vertices
+    // so that when tests modify vertices in it, it won't ruin the original loop.
+    fn clone_loop(l: &Loop) -> Loop {
+        let mut c = Loop {
+            vertices: l.vertices.clone(),
+            origin_inside: l.origin_inside,
+            bound: l.bound.clone(),
+            subregion_bound: l.subregion_bound.clone(),
+            index: ShapeIndex::new(),
+            depth: l.depth,
+        };
+        c.index.add(&ShapeType::Loop(c.clone()));
 
-            // Verify that all vertices are the correct angular distance from center
-            for i in 0..num_vertices {
-                let v = loop_regular.vertex(i);
-                let dist = center.0.angle(&v.0);
-                assert!((dist.rad() - radius.rad()).abs() < 1e-10);
-            }
-
-            // Verify the loop contains the center point
-            assert!(loop_regular.contains_point(center));
-        }
+        c
     }
 
     #[test]
     fn test_loop_equal() {
-        let north1 = north_pole_loop();
-        let north2 = north_pole_loop();
-        let south = south_hemisphere_loop();
+        let tests = vec![
+            (empty_loop(), empty_loop(), true),
+            (full_loop(), full_loop(), true),
+            (empty_loop(), full_loop(), false),
+            (candy_cane(), candy_cane(), true),
+            (candy_cane(), rotate(&candy_cane()), false),
+            (candy_cane(), rotate(&rotate(&candy_cane())), false),
+            (candy_cane(), rotate(&rotate(&rotate(&candy_cane()))), false),
+            (
+                candy_cane(),
+                rotate(&rotate(&rotate(&rotate(&candy_cane())))),
+                false,
+            ),
+            (
+                candy_cane(),
+                rotate(&rotate(&rotate(&rotate(&rotate(&candy_cane()))))),
+                false,
+            ),
+            // candy_cane has 6 points, so 6 rotates should line up again.
+            (
+                candy_cane(),
+                rotate(&rotate(&rotate(&rotate(&rotate(&rotate(&candy_cane())))))),
+                true,
+            ),
+        ];
 
-        // Test identity
-        assert!(north1.equal(&north1));
-
-        // Test equality between identical loops
-        assert!(north1.equal(&north2));
-
-        // Test inequality between different loops
-        assert!(!north1.equal(&south));
-
-        // Test empty and full loops
-        let empty = empty_loop();
-        let full = full_loop();
-        assert!(empty.equal(&empty));
-        assert!(full.equal(&full));
-        assert!(!empty.equal(&full));
-
-        // Test loops with same boundary but different orientation
-        let mut south_copy = south.clone();
-        south_copy.invert();
-        assert!(!south.equal(&south_copy));
-    }
-
-    #[test]
-    fn test_loop_boundary_equal() {
-        let north1 = north_pole_loop();
-        let south = south_hemisphere_loop();
-
-        // Same shape, same order should be boundary equal
-        assert!(north1.boundary_equal(&north1));
-
-        // Create a rotated copy of north1
-        let mut vertices = north1.vertices().to_vec();
-        let first = vertices.remove(0);
-        vertices.push(first);
-        let north_rotated = Loop::from_points(vertices);
-
-        // Rotated vertices should be boundary equal
-        assert!(north1.boundary_equal(&north_rotated));
-
-        // Different loops should not be boundary equal
-        assert!(!north1.boundary_equal(&south));
-
-        // Empty and full loops should be boundary equal only to themselves
-        let empty = empty_loop();
-        let full = full_loop();
-        assert!(empty.boundary_equal(&empty));
-        assert!(full.boundary_equal(&full));
-        assert!(!empty.boundary_equal(&full));
-    }
-
-    #[test]
-    fn test_loop_contains() {
-        let north = north_pole_loop();
-        let small_ne = small_ne_loop();
-        let empty = empty_loop();
-        let full = full_loop();
-
-        // Test degenerate cases
-        assert!(full.contains(&empty));
-        assert!(full.contains(&north));
-        assert!(full.contains(&small_ne));
-
-        assert!(!empty.contains(&full));
-        assert!(!empty.contains(&north));
-        assert!(!empty.contains(&small_ne));
-
-        // Test non-degenerate cases
-        assert!(!north.contains(&full));
-        assert!(north.contains(&north)); // Self-containment
-        assert!(!north.contains(&small_ne)); // Disjoint loops
-
-        // Test nesting
-        assert!(!small_ne.contains(&north));
-        assert!(small_ne.contains(&small_ne)); // Self-containment
-    }
-
-    #[test]
-    fn test_loop_intersects() {
-        let north = north_pole_loop();
-        let small_ne = small_ne_loop();
-        let empty = empty_loop();
-        let full = full_loop();
-        let south = south_hemisphere_loop();
-
-        // Test degenerate cases
-        assert!(!empty.intersects(&empty));
-        assert!(!empty.intersects(&north));
-        assert!(!empty.intersects(&small_ne));
-        assert!(!empty.intersects(&full));
-
-        assert!(!full.intersects(&empty));
-        assert!(full.intersects(&north));
-        assert!(full.intersects(&small_ne));
-        assert!(full.intersects(&full));
-
-        // Test non-degenerate cases
-        assert!(north.intersects(&north)); // Self-intersection
-        assert!(!north.intersects(&small_ne)); // Disjoint loops
-        assert!(north.intersects(&south)); // Loops that share vertices on equator
-
-        assert!(!small_ne.intersects(&north));
-        assert!(small_ne.intersects(&small_ne)); // Self-intersection
-    }
-
-    #[test]
-    fn test_loop_contains_nested() {
-        let north = north_pole_loop();
-        let south = south_hemisphere_loop();
-        let empty = empty_loop();
-        let full = full_loop();
-
-        // Test containment relationships
-        assert!(full.contains_nested(&empty));
-        assert!(full.contains_nested(&north));
-        assert!(full.contains_nested(&south));
-
-        assert!(!empty.contains_nested(&north));
-        assert!(!empty.contains_nested(&south));
-        assert!(!empty.contains_nested(&full));
-
-        // These loops cross, so containment_nested should be false
-        assert!(!north.contains_nested(&south));
-        assert!(!south.contains_nested(&north));
-
-        // Self-containment should be true
-        assert!(north.contains_nested(&north));
-        assert!(south.contains_nested(&south));
-        assert!(empty.contains_nested(&empty));
-        assert!(full.contains_nested(&full));
-    }
-
-    #[test]
-    fn test_loop_compare_boundary() {
-        let north = north_pole_loop();
-        let south = south_hemisphere_loop();
-        let empty = empty_loop();
-        let full = full_loop();
-
-        // Compare boundaries
-        assert_eq!(full.compare_boundary(&empty), 1); // Full contains empty
-        assert_eq!(empty.compare_boundary(&full), -1); // Empty excludes full
-
-        assert_eq!(full.compare_boundary(&north), 1); // Full contains north
-        assert_eq!(north.compare_boundary(&full), -1); // North excludes full
-
-        // North and south should have crossing boundaries
-        assert_eq!(north.compare_boundary(&south), 0);
-        assert_eq!(south.compare_boundary(&north), 0);
-
-        // Self-comparison should show containment
-        assert_eq!(north.compare_boundary(&north), 1);
-        assert_eq!(south.compare_boundary(&south), 1);
-    }
-
-    #[test]
-    fn test_loop_area_and_centroid() {
-        // Empty loop should have 0 area
-        assert_eq!(empty_loop().area(), 0.0);
-
-        // Full loop should have 4π area (surface area of unit sphere)
-        assert_eq!(full_loop().area(), 4.0 * PI);
-
-        // North pole loop area should be positive
-        assert!(north_pole_loop().area() > 0.0);
-
-        // Hemisphere should have 2π area
-        let south = south_hemisphere_loop();
-        assert!((south.area() - 2.0 * PI).abs() < 1e-10);
-
-        // Centroid of empty loop should be zero vector
-        // TODO: Zero for R3 vec!
-        assert_eq!(empty_loop().centroid().0, R3Vector::new(0.0, 0.0, 0.0));
-
-        // South hemisphere centroid should point towards south pole
-        let south_centroid = south.centroid();
-        assert!(south_centroid.0.z < 0.0);
-    }
-
-    #[test]
-    fn test_loop_canonical_first_vertex() {
-        let north = north_pole_loop();
-
-        // Test canonical first vertex
-        let (first, dir) = north.canonical_first_vertex();
-
-        // The result should be within the valid vertex range
-        assert!(first < north.num_vertices());
-
-        // Direction should be either +1 or -1
-        assert!(dir == 1 || dir == -1);
-
-        // Empty and full loops should return sensible values
-        let (first_empty, dir_empty) = empty_loop().canonical_first_vertex();
-        assert_eq!(first_empty, 0);
-        assert_eq!(dir_empty, 1);
-
-        let (first_full, dir_full) = full_loop().canonical_first_vertex();
-        assert_eq!(first_full, 0);
-        assert_eq!(dir_full, 1);
-    }
-
-    #[test]
-    fn test_loop_normalize() {
-        // Create a small loop around south pole (clockwise from outside)
-        let mut south_clockwise = make_loop(&[
-            (0.0, 0.0, -1.0),  // South pole
-            (0.1, 0.0, -0.9),  // Point 1
-            (0.0, 0.1, -0.9),  // Point 2
-            (-0.1, 0.0, -0.9), // Point 3
-        ]);
-
-        // Initially the loop should be clockwise, which is not the normalized orientation
-        assert!(!south_clockwise.is_normalized());
-
-        // Normalize should flip it
-        south_clockwise.normalize();
-
-        // Now it should be normalized (area <= 2π)
-        assert!(south_clockwise.is_normalized());
-
-        // And the area should be large (close to 4π - small area)
-        assert!(south_clockwise.area() > 3.0 * PI);
-
-        // North pole loop should already be normalized
-        let north = north_pole_loop();
-        assert!(north.is_normalized());
-
-        // Area should be small
-        assert!(north.area() < PI);
-
-        // Normalizing it should not change anything
-        let mut north_copy = north.clone();
-        north_copy.normalize();
-        assert!(north.equal(&north_copy));
-    }
-
-    #[test]
-    fn test_loop_invert() {
-        // Test inverting a loop changes its area and origin containment
-        let north = north_pole_loop();
-        let mut north_inverted = north.clone();
-
-        // Initial state
-        let original_area = north.area();
-        let original_contains_origin = north.contains_origin();
-
-        // Invert the loop
-        north_inverted.invert();
-
-        // Area should change to complement (4π - area)
-        let inverted_area = north_inverted.area();
-        assert!((inverted_area - (4.0 * PI - original_area)).abs() < 1e-10);
-
-        // Origin containment should flip
-        assert_eq!(north_inverted.contains_origin(), !original_contains_origin);
-
-        // The vertices should be in reverse order
-        for i in 0..north.num_vertices() {
+        for (a, b, want) in tests {
             assert_eq!(
-                north.vertex(i),
-                north_inverted.vertex(north.num_vertices() - i)
+                a.equal(&b),
+                want,
+                "{:?}.equal({:?}) = {}, want {}",
+                a,
+                b,
+                a.equal(&b),
+                want
             );
         }
     }
 
     #[test]
-    fn test_loop_encode_decode() {
-        // Test that loops can be encoded and decoded correctly
-        let loops = [
-            empty_loop(),
-            full_loop(),
-            north_pole_loop(),
-            south_hemisphere_loop(),
-            small_ne_loop(),
-        ];
-
-        for original in &loops {
-            // Encode the loop
-            let encoded = original.encode();
-
-            // Decode the loop
-            let decoded = Loop::decode(&encoded).expect("Failed to decode loop");
-
-            // Check that the loops are equal
-            assert!(original.equal(&decoded));
-
-            // Also verify basic properties match
-            assert_eq!(original.is_empty(), decoded.is_empty());
-            assert_eq!(original.is_full(), decoded.is_full());
-            assert_eq!(original.num_vertices(), decoded.num_vertices());
-            assert_eq!(original.contains_origin(), decoded.contains_origin());
-        }
-    }
-
-    #[test]
-    fn test_loop_contains_cell() {
-        let north = north_pole_loop();
-        let south = south_hemisphere_loop();
-
-        // Create cells at different levels and test containment
-        for level in [5, 10, 15, 20].iter() {
-            // Cell at north pole
-            let north_cell = Cell::from(CellID::from_face(0).child_begin_at_level(*level as u64));
-
-            // Cell at south pole
-            let south_cell = Cell::from(CellID::from_face(5).child_begin_at_level(*level as u64));
-
-            // Test containment
-            assert!(north.contains_cell(&north_cell)); // North loop should contain north cell
-            assert!(!north.contains_cell(&south_cell)); // North loop should not contain south cell
-
-            assert!(!south.contains_cell(&north_cell)); // South hemisphere should not contain north cell
-            assert!(south.contains_cell(&south_cell)); // South hemisphere should contain south cell
-        }
-    }
-
-    #[test]
-    fn test_loop_cell_intersection() {
-        let north = north_pole_loop();
-        let south = south_hemisphere_loop();
-
-        // Cell at the equator (should intersect both north and south loops)
-        let equator_cell = Cell::from(CellID::from_face(1).child_begin_at_level(10));
-
-        // Test intersection
-        assert!(north.intersects_cell(&equator_cell));
-        assert!(south.intersects_cell(&equator_cell));
-
-        // Cell entirely in north pole region
-        let north_cell = Cell::from(CellID::from_face(0).child_begin_at_level(15));
-
-        // Should intersect north loop but not south
-        assert!(north.intersects_cell(&north_cell));
-        assert!(!south.intersects_cell(&north_cell));
-    }
-
-    #[test]
-    fn test_loop_encode_compressed() {
-        // Test the compressed encoding/decoding at various snap levels
-        let loops = [north_pole_loop(), south_hemisphere_loop(), small_ne_loop()];
-
-        for snap_level in &[10, 15, 20] {
-            for original in &loops {
-                // Skip empty/full loops for compression tests
-                if original.is_empty_or_full() {
-                    continue;
-                }
-
-                // Encode the loop with compression
-                let encoded = original.encode_compressed(*snap_level);
-
-                // Decode the compressed representation
-                let decoded =
-                    Loop::decode_compressed(&encoded).expect("Failed to decode compressed loop");
-
-                // The decoded loop should be approximately equal to the original
-                // We can't expect perfect equality due to the lossy compression
-
-                // Check that basic properties match
-                assert_eq!(original.num_vertices(), decoded.num_vertices());
-                assert_eq!(original.contains_origin(), decoded.contains_origin());
-
-                // The vertices should be approximately in the same locations
-                // Higher snap_level = more precision
-                for i in 0..original.num_vertices() {
-                    let v1 = original.vertex(i);
-                    let v2 = decoded.vertex(i);
-
-                    // The points should be close (angular distance less than a few degrees
-                    // at higher snap levels)
-                    let angle = v1.0.angle(&v2.0);
-
-                    // Allow a greater error margin for lower snap levels
-                    let max_error = match snap_level {
-                        10 => 0.05, // About 3 degrees
-                        15 => 0.01, // Less than 1 degree
-                        _ => 0.001, // Very small error
-                    };
-
-                    assert!(
-                        angle.rad() < max_error,
-                        "Vertex {} differs too much: angle = {} radians",
-                        i,
-                        angle.rad()
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_loop_area_consistent_with_turning_angle() {
-        // This test verifies the relationship between the loop area and
-        // the turning angle at each vertex.
-        let test_loops = [
-            empty_loop(),
-            full_loop(),
-            north_hemi(),
-            south_hemi(),
-            west_hemi(),
-            east_hemi(),
-            near_hemi(),
-            far_hemi(),
-            north_hemi3(),
-            candy_cane(),
-            small_necw(),
-            arctic80(),
-            antarctic80(),
-            line_triangle(),
-            skinny_chevron(),
-        ];
-
-        for loop_under_test in &test_loops {
-            // For a CCW loop, the area and turning angle should have the same sign.
-            // For a CW loop, they should have opposite signs.
-            let area = loop_under_test.area();
-            let turning = loop_under_test.turning_angle();
-
-            // Check if the area and turning angle have consistent signs based on normalization
-            if loop_under_test.is_normalized() {
-                // For normalized loops, turning angle should be positive, area positive
-                assert!(turning >= -loop_under_test.turning_angle_max_error());
-                assert!(area >= 0.0);
-                assert!(area <= 2.0 * PI + 1e-10);
-            } else {
-                // For non-normalized loops, turning angle should be negative, area > 2π
-                assert!(turning <= loop_under_test.turning_angle_max_error());
-                assert!(area >= 2.0 * PI - 1e-10);
-                assert!(area <= 4.0 * PI);
-            }
-        }
-    }
-
-    #[test]
-    fn test_loop_turning_angle() {
-        // Check turning angle values for some simple loops
-        let north_turning = north_hemi().turning_angle();
-        let south_turning = south_hemi().turning_angle();
-
-        // Northern hemisphere loop should have positive turning angle (CCW)
-        assert!(north_turning > 0.0);
-
-        // Southern hemisphere loop should have positive turning angle (CCW)
-        assert!(south_turning > 0.0);
-
-        // Empty loop has +2π turning angle
-        assert!((empty_loop().turning_angle() - 2.0 * PI).abs() < 1e-10);
-
-        // Full loop has -2π turning angle
-        assert!((full_loop().turning_angle() + 2.0 * PI).abs() < 1e-10);
-
-        // Test loops with various shapes
-        for test_loop in &[
-            north_hemi(),
-            south_hemi(),
-            west_hemi(),
-            east_hemi(),
-            near_hemi(),
-            far_hemi(),
-            north_hemi3(),
-            candy_cane(),
-            arctic80(),
-            antarctic80(),
-            skinny_chevron(),
-        ] {
-            // Create a copy and invert it
-            let mut inverted = test_loop.clone();
-            inverted.invert();
-
-            // The turning angle should flip sign when the loop is inverted
-            assert!((test_loop.turning_angle() + inverted.turning_angle()).abs() < 1e-8);
-        }
-    }
-
-    #[test]
-    fn test_loop_relations() {
-        // Test loop relation operations - contains, intersects
-        struct TestCase {
-            name: &'static str,
-            a: fn() -> Loop,
-            b: fn() -> Loop,
-            contains: bool,
-            intersects: bool,
-        }
-
-        let test_cases = [
-            TestCase {
-                name: "EmptyEmpty",
-                a: empty_loop,
-                b: empty_loop,
-                contains: true,
-                intersects: false,
-            },
-            TestCase {
-                name: "EmptyFull",
-                a: empty_loop,
-                b: full_loop,
-                contains: false,
-                intersects: false,
-            },
-            TestCase {
-                name: "FullEmpty",
-                a: full_loop,
-                b: empty_loop,
-                contains: true,
-                intersects: false,
-            },
-            TestCase {
-                name: "FullFull",
-                a: full_loop,
-                b: full_loop,
-                contains: true,
-                intersects: true,
-            },
-            TestCase {
-                name: "EmptyNorth",
-                a: empty_loop,
-                b: north_hemi,
-                contains: false,
-                intersects: false,
-            },
-            TestCase {
-                name: "FullNorth",
-                a: full_loop,
-                b: north_hemi,
-                contains: true,
-                intersects: true,
-            },
-            TestCase {
-                name: "NorthEmpty",
-                a: north_hemi,
-                b: empty_loop,
-                contains: true,
-                intersects: false,
-            },
-            TestCase {
-                name: "NorthFull",
-                a: north_hemi,
-                b: full_loop,
-                contains: false,
-                intersects: true,
-            },
-            TestCase {
-                name: "NorthSouth",
-                a: north_hemi,
-                b: south_hemi,
-                contains: false,
-                intersects: true,
-            },
-            TestCase {
-                name: "NorthNorth",
-                a: north_hemi,
-                b: north_hemi,
-                contains: true,
-                intersects: true,
-            },
-            TestCase {
-                name: "NorthNear",
-                a: north_hemi,
-                b: near_hemi,
-                contains: false,
-                intersects: true,
-            },
-            TestCase {
-                name: "NorthFar",
-                a: north_hemi,
-                b: far_hemi,
-                contains: false,
-                intersects: true,
-            },
-            TestCase {
-                name: "NorthEast",
-                a: north_hemi,
-                b: east_hemi,
-                contains: false,
-                intersects: true,
-            },
-            TestCase {
-                name: "NorthWest",
-                a: north_hemi,
-                b: west_hemi,
-                contains: false,
-                intersects: true,
-            },
-            TestCase {
-                name: "NorthArctic",
-                a: north_hemi,
-                b: arctic80,
-                contains: true,
-                intersects: true,
-            },
-            TestCase {
-                name: "NorthAntarctic",
-                a: north_hemi,
-                b: antarctic80,
-                contains: false,
-                intersects: false,
-            },
-            TestCase {
-                name: "ArcticAntarctic",
-                a: arctic80,
-                b: antarctic80,
-                contains: false,
-                intersects: false,
-            },
-            // Tests for the complex loop relations
-            TestCase {
-                name: "LoopALoopA",
-                a: loop_a,
-                b: loop_a,
-                contains: true,
-                intersects: true,
-            },
-            TestCase {
-                name: "LoopALoopB",
-                a: loop_a,
-                b: loop_b,
-                contains: false,
-                intersects: true,
-            },
-            TestCase {
-                name: "LoopALoopC",
-                a: loop_a,
-                b: loop_c,
-                contains: false,
-                intersects: true,
-            },
-            TestCase {
-                name: "LoopALoopD",
-                a: loop_a,
-                b: loop_d,
-                contains: true,
-                intersects: true,
-            },
-            TestCase {
-                name: "LoopCLoopA",
-                a: loop_c,
-                b: loop_a,
-                contains: true,
-                intersects: true,
-            },
-            TestCase {
-                name: "LoopDLoopA",
-                a: loop_d,
-                b: loop_a,
-                contains: false,
-                intersects: true,
-            },
-        ];
-
-        for test in &test_cases {
-            let a = (test.a)();
-            let b = (test.b)();
-
-            assert_eq!(
-                a.contains(&b),
-                test.contains,
-                "{}:Contains: expected {}, got {}",
-                test.name,
-                test.contains,
-                a.contains(&b)
-            );
-
-            assert_eq!(
-                a.intersects(&b),
-                test.intersects,
-                "{}:Intersects: expected {}, got {}",
-                test.name,
-                test.intersects,
-                a.intersects(&b)
-            );
-        }
-    }
-
-    #[test]
-    fn test_loop_boundary_relations() {
-        // Test loop boundary relations using compare_boundary
-        struct TestCase {
-            name: &'static str,
-            a: fn() -> Loop,
-            b: fn() -> Loop,
-            result: i32, // +1: A contains B, -1: A excludes B, 0: boundaries cross
-        }
-
-        let test_cases = [
-            TestCase {
-                name: "EmptyEmpty",
-                a: empty_loop,
-                b: empty_loop,
-                result: 1,
-            },
-            TestCase {
-                name: "EmptyFull",
-                a: empty_loop,
-                b: full_loop,
-                result: -1,
-            },
-            TestCase {
-                name: "FullEmpty",
-                a: full_loop,
-                b: empty_loop,
-                result: 1,
-            },
-            TestCase {
-                name: "FullFull",
-                a: full_loop,
-                b: full_loop,
-                result: 1,
-            },
-            TestCase {
-                name: "EmptyNorth",
-                a: empty_loop,
-                b: north_hemi,
-                result: -1,
-            },
-            TestCase {
-                name: "FullNorth",
-                a: full_loop,
-                b: north_hemi,
-                result: 1,
-            },
-            TestCase {
-                name: "NorthEmpty",
-                a: north_hemi,
-                b: empty_loop,
-                result: 1,
-            },
-            TestCase {
-                name: "NorthFull",
-                a: north_hemi,
-                b: full_loop,
-                result: -1,
-            },
-            TestCase {
-                name: "NorthSouth",
-                a: north_hemi,
-                b: south_hemi,
-                result: 0,
-            },
-            TestCase {
-                name: "NorthNorth",
-                a: north_hemi,
-                b: north_hemi,
-                result: 1,
-            },
-            TestCase {
-                name: "NorthEast",
-                a: north_hemi,
-                b: east_hemi,
-                result: 0,
-            },
-            TestCase {
-                name: "NorthArctic",
-                a: north_hemi,
-                b: arctic80,
-                result: 1,
-            },
-            TestCase {
-                name: "NorthAntarctic",
-                a: north_hemi,
-                b: antarctic80,
-                result: -1,
-            },
-            TestCase {
-                name: "ArcticAntarctic",
-                a: arctic80,
-                b: antarctic80,
-                result: -1,
-            },
-            // Tests for the complex loop relations
-            TestCase {
-                name: "LoopALoopB",
-                a: loop_a,
-                b: loop_b,
-                result: 0,
-            },
-            TestCase {
-                name: "LoopALoopC",
-                a: loop_a,
-                b: loop_c,
-                result: -1,
-            },
-            TestCase {
-                name: "LoopALoopD",
-                a: loop_a,
-                b: loop_d,
-                result: 1,
-            },
-            TestCase {
-                name: "LoopCLoopA",
-                a: loop_c,
-                b: loop_a,
-                result: 1,
-            },
-            TestCase {
-                name: "LoopDLoopA",
-                a: loop_d,
-                b: loop_a,
-                result: -1,
-            },
-        ];
-
-        for test in &test_cases {
-            let a = (test.a)();
-            let b = (test.b)();
-
-            assert_eq!(
-                a.compare_boundary(&b),
-                test.result,
-                "{}:CompareBoundary: expected {}, got {:?}",
-                test.name,
-                test.result,
-                a.compare_boundary(&b)
-            );
-        }
-    }
-
-    #[test]
-    fn test_loop_normalized_compatible_with_contains() {
-        // Test that normalization is consistent with the contains operation
-
-        // Create a bunch of loops to test
-        let test_loops = [
-            north_hemi(),
-            south_hemi(),
-            west_hemi(),
-            east_hemi(),
-            near_hemi(),
-            far_hemi(),
-            arctic80(),
-            antarctic80(),
-            candy_cane(),
-            small_necw(),
-        ];
-
-        for a in &test_loops {
-            for b in &test_loops {
-                // For any loops A and B, if A contains B then after normalizing both,
-                // we should have norm(A) contains norm(B).
-                let contains = a.contains(b);
-
-                // Clone the loops so we can normalize them
-                let mut a_norm = a.clone();
-                let mut b_norm = b.clone();
-
-                // Normalize both loops
-                a_norm.normalize();
-                b_norm.normalize();
-
-                // Check that normalization preserves containment
-                assert_eq!(
-                    a_norm.contains(&b_norm),
-                    contains,
-                    "Normalization changed containment relationship: {} vs {}",
-                    contains,
-                    a_norm.contains(&b_norm)
-                );
-            }
-        }
-    }
-
-    // #[test]
-    // fn test_loop_contains_non_crossing_boundary() {
-    //     // Test the contains_non_crossing_boundary method
-    //     struct TestCase {
-    //         name: &'static str,
-    //         a: fn() -> Loop,
-    //         b: fn() -> Loop,
-    //         expected: bool,
-    //     }
-    //
-    //     let test_cases = [
-    //         TestCase {
-    //             name: "EmptyEmpty",
-    //             a: empty_loop,
-    //             b: empty_loop,
-    //             expected: true,
-    //         },
-    //         TestCase {
-    //             name: "EmptyFull",
-    //             a: empty_loop,
-    //             b: full_loop,
-    //             expected: false,
-    //         },
-    //         TestCase {
-    //             name: "FullEmpty",
-    //             a: full_loop,
-    //             b: empty_loop,
-    //             expected: true,
-    //         },
-    //         TestCase {
-    //             name: "FullFull",
-    //             a: full_loop,
-    //             b: full_loop,
-    //             expected: true,
-    //         },
-    //         TestCase {
-    //             name: "EmptyNorth",
-    //             a: empty_loop,
-    //             b: north_hemi,
-    //             expected: false,
-    //         },
-    //         TestCase {
-    //             name: "FullNorth",
-    //             a: full_loop,
-    //             b: north_hemi,
-    //             expected: true,
-    //         },
-    //         TestCase {
-    //             name: "NorthEmpty",
-    //             a: north_hemi,
-    //             b: empty_loop,
-    //             expected: true,
-    //         },
-    //         TestCase {
-    //             name: "NorthFull",
-    //             a: north_hemi,
-    //             b: full_loop,
-    //             expected: false,
-    //         },
-    //         TestCase {
-    //             name: "NorthSouth",
-    //             a: north_hemi,
-    //             b: south_hemi,
-    //             expected: false,
-    //         },
-    //         TestCase {
-    //             name: "NorthNorth",
-    //             a: north_hemi,
-    //             b: north_hemi,
-    //             expected: true,
-    //         },
-    //         TestCase {
-    //             name: "NorthArctic",
-    //             a: north_hemi,
-    //             b: arctic80,
-    //             expected: true,
-    //         },
-    //         TestCase {
-    //             name: "NorthAntarctic",
-    //             a: north_hemi,
-    //             b: antarctic80,
-    //             expected: false,
-    //         },
-    //         // Tests for the complex loop relations
-    //         TestCase {
-    //             name: "LoopALoopB",
-    //             a: loop_a,
-    //             b: loop_b,
-    //             expected: false,
-    //         },
-    //         TestCase {
-    //             name: "LoopALoopC",
-    //             a: loop_a,
-    //             b: loop_c,
-    //             expected: false,
-    //         },
-    //         TestCase {
-    //             name: "LoopALoopD",
-    //             a: loop_a,
-    //             b: loop_d,
-    //             expected: true,
-    //         },
-    //         TestCase {
-    //             name: "LoopCLoopA",
-    //             a: loop_c,
-    //             b: loop_a,
-    //             expected: true,
-    //         },
-    //         TestCase {
-    //             name: "LoopDLoopA",
-    //             a: loop_d,
-    //             b: loop_a,
-    //             expected: false,
-    //         },
-    //     ];
-    //
-    //     for test in &test_cases {
-    //         let a = (test.a)();
-    //         let b = (test.b)();
-    //
-    //         assert_eq!(
-    //             a.contains_non_crossing_boundary(&b),
-    //             test.expected,
-    //             "{}:ContainsNonCrossingBoundary: expected {}, got {}",
-    //             test.name,
-    //             test.expected,
-    //             a.contains_non_crossing_boundary(&b)
-    //         );
-    //     }
-    // }
-
-    #[test]
-    fn test_canonical_first_vertex() {
-        let test_loops = [
-            north_hemi(),
-            south_hemi(),
-            east_hemi(),
-            west_hemi(),
-            near_hemi(),
-            far_hemi(),
-            candy_cane(),
-            small_necw(),
-            arctic80(),
-            antarctic80(),
-        ];
-
-        for loop_under_test in &test_loops {
-            // Skip empty/full loops with only one vertex
-            if loop_under_test.is_empty_or_full() {
-                continue;
-            }
-
-            let (first, dir) = loop_under_test.canonical_first_vertex();
-
-            // Verify the canonical vertex is within bounds
-            assert!(first < loop_under_test.num_vertices());
-
-            // Direction should be either +1 or -1
-            assert!(dir == 1 || dir == -1);
-
-            // Verify that the chosen edge is in fact the first
-            // edge in lexicographic ordering
-            // (would need to implement proper edge comparison)
-
-            // Create a loop with the canonical ordering
-            let mut canonical_vertices = Vec::new();
-            if dir == 1 {
-                // Forward direction
-                for i in 0..loop_under_test.num_vertices() {
-                    canonical_vertices.push(loop_under_test.vertex(first + i));
-                }
-            } else {
-                // Reverse direction
-                for i in 0..loop_under_test.num_vertices() {
-                    canonical_vertices.push(loop_under_test.vertex(first - i));
-                }
-            }
-
-            // The canonical vertices should still form the same loop
-            let canonical_loop = Loop::from_points(canonical_vertices);
-            assert!(canonical_loop.boundary_equal(loop_under_test));
-        }
-    }
-
-    #[test]
-    fn test_loop_validate_basic() {
-        // Test that valid loops pass validation
-
-        // These loops should all be valid
-        let valid_loops = [
-            empty_loop(),
-            full_loop(),
-            north_hemi(),
-            south_hemi(),
-            west_hemi(),
-            east_hemi(),
-            near_hemi(),
-            far_hemi(),
-            north_hemi3(),
-            candy_cane(),
-            arctic80(),
-            antarctic80(),
-        ];
-
-        for (i, loop_under_test) in valid_loops.iter().enumerate() {
-            // Valid loops should have at least 3 vertices or be empty/full
-            if !loop_under_test.is_empty_or_full() {
-                assert!(
-                    loop_under_test.num_vertices() >= 3,
-                    "Valid loop #{} has fewer than 3 vertices",
-                    i
-                );
-            }
-
-            // Vertices should be normalized unit vectors
-            for j in 0..loop_under_test.num_vertices() {
-                let vertex = loop_under_test.vertex(j);
-                // Check that the vertex is a unit vector (length ~= 1)
-                let length = vertex.0.norm();
-                assert!(
-                    (length - 1.0).abs() < 1e-10,
-                    "Vertex {} of loop #{} is not a unit vector: length={}",
-                    j,
-                    i,
-                    length
-                );
-            }
-
-            // Adjacent vertices should not be the same point or antipodal
-            if !loop_under_test.is_empty_or_full() {
-                for j in 0..loop_under_test.num_vertices() {
-                    let v1 = loop_under_test.vertex(j);
-                    let v2 = loop_under_test.vertex(j + 1);
-
-                    // Not the same point
-                    assert!(
-                        v1 != v2,
-                        "Adjacent vertices {} and {} in loop #{} are identical",
-                        j,
-                        j + 1,
-                        i
-                    );
-
-                    // Not antipodal (opposite points on the sphere)
-                    assert!(
-                        v1.0.dot(&v2.0) > -0.999,
-                        "Adjacent vertices {} and {} in loop #{} are antipodal",
-                        j,
-                        j + 1,
-                        i
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_loop_validate_detects_invalid_loops() {
-        // Create some invalid loops and verify they would be caught by validation
-
-        // Loop with duplicate vertices
-        let duplicate_vertices = Loop::from_points(vec![
-            Point(R3Vector {
-                x: 0.0,
-                y: 0.0,
-                z: 1.0,
-            }),
-            Point(R3Vector {
-                x: 1.0,
-                y: 0.0,
-                z: 0.0,
-            }),
-            Point(R3Vector {
-                x: 0.0,
-                y: 1.0,
-                z: 0.0,
-            }),
-            Point(R3Vector {
-                x: 1.0,
-                y: 0.0,
-                z: 0.0,
-            }), // Duplicate of vertex 1
-        ]);
-
-        // Check for duplicate vertices
-        let mut has_duplicates = false;
-        for i in 0..duplicate_vertices.num_vertices() {
-            for j in i + 1..duplicate_vertices.num_vertices() {
-                if duplicate_vertices.vertex(i) == duplicate_vertices.vertex(j) {
-                    has_duplicates = true;
-                    break;
-                }
-            }
-        }
-        assert!(has_duplicates, "Failed to detect duplicate vertices");
-
-        // Loop with antipodal vertices (invalid - would create a 180° edge)
-        let antipodal_vertices = Loop::from_points(vec![
-            Point(R3Vector {
-                x: 0.0,
-                y: 0.0,
-                z: 1.0,
-            }),
-            Point(R3Vector {
-                x: 1.0,
-                y: 0.0,
-                z: 0.0,
-            }),
-            Point(R3Vector {
-                x: 0.0,
-                y: 0.0,
-                z: -1.0,
-            }), // Antipodal to first vertex
-        ]);
-
-        // Check for antipodal adjacent vertices
-        let mut has_antipodal = false;
-        for i in 0..antipodal_vertices.num_vertices() {
-            let v1 = antipodal_vertices.vertex(i);
-            let v2 = antipodal_vertices.vertex(i + 1);
-            if v1.0.dot(&v2.0) <= -0.99 {
-                has_antipodal = true;
-                break;
-            }
-        }
-        assert!(has_antipodal, "Failed to detect antipodal vertices");
-
-        // Loop with only 2 vertices (invalid - except for empty/full loops)
-        let two_vertex_loop = Loop::from_points(vec![
-            Point(R3Vector {
-                x: 0.0,
-                y: 0.0,
-                z: 1.0,
-            }),
-            Point(R3Vector {
-                x: 1.0,
-                y: 0.0,
-                z: 0.0,
-            }),
-        ]);
-
-        // A non-empty, non-full loop should have at least 3 vertices
-        assert!(
-            two_vertex_loop.num_vertices() == 2,
-            "Expected loop with 2 vertices"
-        );
-        assert!(
-            !two_vertex_loop.is_empty_or_full(),
-            "Expected non-empty, non-full loop"
-        );
-
-        // Loop with self-intersection
-        let self_intersecting = Loop::from_points(vec![
-            Point(R3Vector {
-                x: 0.0,
-                y: 0.0,
-                z: 1.0,
-            }), // North pole
-            Point(R3Vector {
-                x: 1.0,
-                y: 0.0,
-                z: 0.0,
-            }), // Point on equator (0°)
-            Point(R3Vector {
-                x: 0.0,
-                y: -1.0,
-                z: 0.0,
-            }), // Point on equator (270°)
-            Point(R3Vector {
-                x: -1.0,
-                y: 0.0,
-                z: 0.0,
-            }), // Point on equator (180°)
-            Point(R3Vector {
-                x: 0.0,
-                y: 1.0,
-                z: 0.0,
-            }), // Point on equator (90°)
-        ]);
-
-        // This specific construction creates a loop with self-intersections
-        // We would need a more complex algorithm to detect this in general, but
-        // for this specific case we can check that the loop has 5 vertices and
-        // a boundary that overlaps itself.
-        assert_eq!(self_intersecting.num_vertices(), 5);
-
-        // Non-unit vector vertices (not normalized)
-        let non_unit_vertices = Loop::from_points(vec![
-            Point(R3Vector {
-                x: 0.0,
-                y: 0.0,
-                z: 2.0,
-            }), // Not normalized
-            Point(R3Vector {
-                x: 1.0,
-                y: 0.0,
-                z: 0.0,
-            }),
-            Point(R3Vector {
-                x: 0.0,
-                y: 1.0,
-                z: 0.0,
-            }),
-        ]);
-
-        // Verify we can detect non-unit vertices
-        let mut has_non_unit = false;
-        for i in 0..non_unit_vertices.num_vertices() {
-            let vertex = non_unit_vertices.vertex(i);
-            let length = vertex.0.norm();
-            if (length - 1.0).abs() > 1e-10 {
-                has_non_unit = true;
-                break;
-            }
-        }
-        assert!(has_non_unit, "Failed to detect non-unit vector vertices");
-    }
-
-    #[test]
-    fn test_wedge_relations() {
-        // Test WedgeContains and WedgeIntersects functions
-
-        // Create some test points for wedge tests
-        let north = Point(R3Vector {
-            x: 0.0,
-            y: 0.0,
-            z: 1.0,
-        });
-        let south = Point(R3Vector {
-            x: 0.0,
-            y: 0.0,
-            z: -1.0,
-        });
-        let east = Point(R3Vector {
+    fn test_loop_contains_matches_crossing_sign() {
+        // This test demonstrates a former incompatibility between CrossingSign
+        // and ContainsPoint. It constructs a Cell-based loop L and
+        // an edge E from Origin to a0 that crosses exactly one edge of L.  Yet
+        // previously, Contains() returned false for both endpoints of E.
+        //
+        // The reason for the bug was that the loop bound was sometimes too tight.
+        // The Contains() code for a0 bailed out early because a0 was found not to
+        // be inside the bound of L.
+
+        // Start with a cell that ends up producing the problem.
+        let cell_id = CellID::from(&Point(R3Vector {
             x: 1.0,
-            y: 0.0,
-            z: 0.0,
-        });
-        let west = Point(R3Vector {
-            x: -1.0,
-            y: 0.0,
-            z: 0.0,
-        });
-        let northeast = Point(
-            R3Vector {
-                x: 1.0,
-                y: 1.0,
-                z: 0.0,
-            }
-            .normalize(),
-        );
-        let northwest = Point(
-            R3Vector {
-                x: -1.0,
-                y: 1.0,
-                z: 0.0,
-            }
-            .normalize(),
-        );
-        let southeast = Point(
-            R3Vector {
-                x: 1.0,
-                y: -1.0,
-                z: 0.0,
-            }
-            .normalize(),
-        );
-        let southwest = Point(
-            R3Vector {
-                x: -1.0,
-                y: -1.0,
-                z: 0.0,
-            }
-            .normalize(),
-        );
+            y: 1.0,
+            z: 1.0,
+        }))
+        .parent(21);
+        let cell = Cell::from(cell_id);
+        let children = cell.children().unwrap();
 
-        // Test WedgeContains
-        assert!(general_wedge_contains(
-            &north, &east, &south, &northeast, &southeast
-        ));
-        assert!(!general_wedge_contains(
-            &north, &east, &south, &northwest, &southwest
-        ));
-
-        assert!(general_wedge_contains(
-            &east, &north, &west, &northeast, &northwest
-        ));
-        assert!(!general_wedge_contains(
-            &east, &north, &west, &southeast, &southwest
-        ));
-
-        // Test WedgeIntersects
-        assert!(wedge_intersects(&north, &east, &south, &north, &west));
-        assert!(!wedge_intersects(
-            &north, &east, &south, &southeast, &southwest
-        ));
-
-        // Wedges with shared boundary should not intersect
-        assert!(!wedge_intersects(&north, &east, &south, &north, &northeast));
-
-        // Identical wedges should not intersect (one contains the other)
-        assert!(!wedge_intersects(&north, &east, &south, &north, &south));
-
-        // Test WedgeIntersects with overlapping wedges
-        assert!(wedge_intersects(
-            &northwest, &north, &northeast, &west, &east
-        ));
-
-        // Test degenerate cases
-
-        // A wedge that spans the entire sphere contains everything
-        assert!(general_wedge_contains(&north, &east, &north, &west, &south));
-
-        // A wedge with zero span contains nothing except its boundary
-        assert!(!general_wedge_contains(
-            &north, &north, &east, &west, &south
-        ));
-        assert!(general_wedge_contains(&north, &north, &east, &north, &east));
-    }
-
-    #[test]
-    fn test_loop_cell_union_bound() {
-        // Test that cell_union_bound returns reasonable coverings
-
-        // Empty loop should have empty bound
-        let empty = empty_loop();
-        let empty_cells = empty.cell_union_bound();
-        assert!(empty_cells.0.is_empty());
-
-        // Full loop should cover the entire sphere
-        let full = full_loop();
-        let full_cells = full.cell_union_bound();
-        assert_eq!(full_cells.0.len(), 6); // 6 face cells cover the sphere
-
-        // Test with regular loops of different sizes
-        let test_loops = [
-            north_hemi(),
-            south_hemi(),
-            east_hemi(),
-            west_hemi(),
-            arctic80(),
-            antarctic80(),
-        ];
-
-        for loop_under_test in &test_loops {
-            let cell_covering = loop_under_test.cell_union_bound();
-
-            // The covering should not be empty
-            assert!(!cell_covering.0.is_empty());
-
-            // Examine each point in the loop and verify it's contained in the covering
-            for i in 0..loop_under_test.num_vertices() {
-                let vertex = loop_under_test.vertex(i);
-                let vertex_cell = CellID::from(&vertex);
-
-                // The vertex should be contained in at least one cell of the covering
-                let mut contained = false;
-                for &cell_id in &cell_covering.0 {
-                    if cell_id.contains(&vertex_cell) {
-                        contained = true;
-                        break;
-                    }
-                }
-
-                assert!(contained, "Vertex {} not contained in cell union bound", i);
-            }
+        let mut points = Vec::with_capacity(4);
+        for i in 0..4 {
+            // Note extra normalization. Center() is already normalized.
+            // The test results will no longer be inconsistent if the extra
+            // Normalize() is removed.
+            points.push(Point(children[i].center().0.normalize()));
         }
+
+        // Get a vertex from a grandchild cell.
+        // +---------------+---------------+
+        // |               |               |
+        // |    points[3]  |   points[2]   |
+        // |       v       |       v       |
+        // |       +-------+------ +       |
+        // |       |       |       |       |
+        // |       |       |       |       |
+        // |       |       |       |       |
+        // +-------+-------+-------+-------+
+        // |       |       |       |       |
+        // |       |    <----------------------- grandchild_cell
+        // |       |       |       |       |
+        // |       +-------+------ +       |
+        // |       ^       |       ^       | <-- cell
+        // | points[0]/a0  |     points[1] |
+        // |               |               |
+        // +---------------+---------------+
+        let loop_obj = Loop::from_points(points.clone());
+        let grandchildren = children[0].children().unwrap();
+
+        let grandchild_cell = &grandchildren[2];
+
+        let a0 = grandchild_cell.vertex(0);
+
+        // This test depends on rounding errors that should make a0 slightly different from points[0]
+        assert_ne!(
+            points[0], a0,
+            "{:?} not different enough from {:?} to successfully test",
+            points[0], a0
+        );
+
+        // The edge from a0 to the origin crosses one boundary.
+        let want = Crossing::DoNotCross;
+        let got = EdgeCrosser::new_chain_edge_crosser(&a0, &Point::origin(), &loop_obj.vertex(0))
+            .chain_crossing_sign(&loop_obj.vertex(1));
+        assert_eq!(
+            got,
+            want,
+            "crossingSign({:?}, {:?}, {:?}, {:?}) = {:?}, want {:?}",
+            a0,
+            Point::origin(),
+            loop_obj.vertex(0),
+            loop_obj.vertex(1),
+            got,
+            want
+        );
+
+        let want = Crossing::Cross;
+        let got = EdgeCrosser::new_chain_edge_crosser(&a0, &Point::origin(), &loop_obj.vertex(1))
+            .chain_crossing_sign(&loop_obj.vertex(2));
+        assert_eq!(
+            got,
+            want,
+            "crossingSign({:?}, {:?}, {:?}, {:?}) = {:?}, want {:?}",
+            a0,
+            Point::origin(),
+            loop_obj.vertex(1),
+            loop_obj.vertex(2),
+            got,
+            want
+        );
+
+        let want = Crossing::DoNotCross;
+        let got = EdgeCrosser::new_chain_edge_crosser(&a0, &Point::origin(), &loop_obj.vertex(2))
+            .chain_crossing_sign(&loop_obj.vertex(3));
+        assert_eq!(
+            got,
+            want,
+            "crossingSign({:?}, {:?}, {:?}, {:?}) = {:?}, want {:?}",
+            a0,
+            Point::origin(),
+            loop_obj.vertex(2),
+            loop_obj.vertex(3),
+            got,
+            want
+        );
+
+        let want = Crossing::DoNotCross;
+        let got = EdgeCrosser::new_chain_edge_crosser(&a0, &Point::origin(), &loop_obj.vertex(3))
+            .chain_crossing_sign(&loop_obj.vertex(4));
+        assert_eq!(
+            got,
+            want,
+            "crossingSign({:?}, {:?}, {:?}, {:?}) = {:?}, want {:?}",
+            a0,
+            Point::origin(),
+            loop_obj.vertex(3),
+            loop_obj.vertex(4),
+            got,
+            want
+        );
+
+        // Contains should return false for the origin, and true for a0.
+        assert!(
+            !loop_obj.contains_point(Point::origin()),
+            "{:?}.contains_point({:?}) = true, want false",
+            loop_obj,
+            Point::origin()
+        );
+        assert!(
+            loop_obj.contains_point(a0),
+            "{:?}.contains_point({:?}) = false, want true",
+            loop_obj,
+            a0
+        );
+
+        // Since a0 is inside the loop, it should be inside the bound.
+        let bound = loop_obj.bound.clone();
+        assert!(
+            bound.contains_point(&a0),
+            "{:?}.contains_point({:?}) = false, want true",
+            bound,
+            a0
+        );
     }
+
+    fn test_loop_nested_pair(t: &mut impl FnMut(&str, bool), a: &Loop, b: &Loop) {
+        let a1 = &mut clone_loop(a);
+        a1.invert();
+        let b1 = &mut clone_loop(b);
+        b1.invert();
+        test_loop_one_nested_pair(t, a, b);
+        test_loop_one_nested_pair(t, b1, a1);
+        test_loop_one_disjoint_pair(t, a1, b);
+        test_loop_one_covering_pair(t, a, b1);
+    }
+
+    fn test_loop_one_nested_pair(t: &mut impl FnMut(&str, bool), a: &Loop, b: &Loop) {
+        t(
+            &format!("{:?}.contains({:?}) = false, want true", a, b),
+            a.contains(b),
+        );
+        t(
+            &format!(
+                "{:?}.contains({:?}) = {}, want {}",
+                b,
+                a,
+                b.contains(a),
+                a.boundary_equal(b)
+            ),
+            b.contains(a) == a.boundary_equal(b),
+        );
+        t(
+            &format!(
+                "{:?}.intersects({:?}) = {}, want {}",
+                a,
+                b,
+                a.intersects(b),
+                !b.is_empty()
+            ),
+            a.intersects(b) == !b.is_empty(),
+        );
+        t(
+            &format!(
+                "{:?}.intersects({:?}) = {}, want {}",
+                b,
+                a,
+                b.intersects(a),
+                !b.is_empty()
+            ),
+            b.intersects(a) == !b.is_empty(),
+        );
+    }
+
+    fn test_loop_one_disjoint_pair(t: &mut impl FnMut(&str, bool), a: &Loop, b: &Loop) {
+        t(
+            &format!("{:?}.intersects({:?}) = true, want false", a, b),
+            !a.intersects(b),
+        );
+        t(
+            &format!("{:?}.intersects({:?}) = true, want false", b, a),
+            !b.intersects(a),
+        );
+        t(
+            &format!(
+                "{:?}.contains({:?}) = {}, want {}",
+                a,
+                b,
+                a.contains(b),
+                b.is_empty()
+            ),
+            a.contains(b) == b.is_empty(),
+        );
+        t(
+            &format!(
+                "{:?}.contains({:?}) = {}, want {}",
+                b,
+                a,
+                b.contains(a),
+                a.is_empty()
+            ),
+            b.contains(a) == a.is_empty(),
+        );
+    }
+
+    fn test_loop_one_covering_pair(t: &mut impl FnMut(&str, bool), a: &Loop, b: &Loop) {
+        t(
+            &format!(
+                "{:?}.contains({:?}) = {}, want {}",
+                a,
+                b,
+                a.contains(b),
+                a.is_full()
+            ),
+            a.contains(b) == a.is_full(),
+        );
+        t(
+            &format!(
+                "{:?}.contains({:?}) = {}, want {}",
+                b,
+                a,
+                b.contains(a),
+                b.is_full()
+            ),
+            b.contains(a) == b.is_full(),
+        );
+        let a1 = &mut clone_loop(a);
+        a1.invert();
+        let complementary = a1.boundary_equal(b);
+        t(
+            &format!(
+                "{:?}.intersects({:?}) = {}, want {}",
+                a,
+                b,
+                a.intersects(b),
+                !complementary
+            ),
+            a.intersects(b) == !complementary,
+        );
+        t(
+            &format!(
+                "{:?}.intersects({:?}) = {}, want {}",
+                b,
+                a,
+                b.intersects(a),
+                !complementary
+            ),
+            b.intersects(a) == !complementary,
+        );
+    }
+
+    fn test_loop_one_overlapping_pair(t: &mut impl FnMut(&str, bool), a: &Loop, b: &Loop) {
+        t(
+            &format!("{:?}.contains({:?}) = true, want false", a, b),
+            !a.contains(b),
+        );
+        t(
+            &format!("{:?}.contains({:?}) = true, want false", b, a),
+            !b.contains(a),
+        );
+        t(
+            &format!("{:?}.intersects({:?}) = false, want true", a, b),
+            a.intersects(b),
+        );
+        t(
+            &format!("{:?}.intersects({:?}) = false, want true", b, a),
+            b.intersects(a),
+        );
+    }
+
+    // TODO: TestLoopRelations and everything after, still 800 lines ish left!
 }
