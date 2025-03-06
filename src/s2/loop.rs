@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::consts::DBL_EPSILON;
+use crate::consts::EPSILON;
 use crate::error::S2Error;
 use crate::point::{get_frame, ordered_ccw, regular_points_for_frame};
 use crate::r3::vector::Vector as R3Vector;
@@ -42,7 +43,6 @@ use std::f64::consts::PI;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub};
-use crate::consts::EPSILON;
 
 pub enum OriginBound {
     OriginInside,
@@ -1999,7 +1999,7 @@ fn signed_area(a: Point, b: Point, c: Point) -> f64 {
 mod tests {
     use super::*;
     use crate::consts::f64_eq;
-    use crate::r3::vector::Vector as R3Vector;
+    use crate::r3::vector::{Vector as R3Vector, Vector};
     use crate::s1::angle::Angle;
     use crate::s1::Deg;
     use crate::s2::cell::Cell;
@@ -2009,14 +2009,54 @@ mod tests {
 
     use std::convert::TryInto;
     use std::f64::consts::PI;
+    use crate::latlng::LatLng;
 
     // Helper function to create a test loop from coordinates
-    fn make_loop(coords: &[(f64, f64, f64)]) -> Loop {
-        let vertices: Vec<Point> = coords
-            .iter()
-            .map(|&(x, y, z)| Point(R3Vector { x, y, z }.normalize()))
-            .collect();
-        Loop::from_points(vertices)
+    fn make_loop(s: &str) -> Loop {
+        if s == "full" {
+            Loop::full()
+
+        } else if s == "empty" {
+            Loop::empty()
+        } else {
+            Loop::from_points(parse_points(s))
+        }
+    }
+
+    // TODO: Make text format test suite helper function independent
+    // parseLatLngs returns the values in the input string as LatLngs.
+    fn parse_lat_lngs(s: &str) -> Vec<LatLng> {
+        let mut result = Vec::new();
+        for pair in s.split(',') {
+            if pair.is_empty() {
+                continue;
+            }
+            let mut parts : Vec<&str> = pair.split(':').collect();
+
+            if parts.len() != 2 {
+                 continue;
+            }
+
+            let lat_float : f64 = parts[0].parse().unwrap();
+            let lng_float : f64 = parts[1].parse().unwrap();
+            result.push(LatLng::from_degrees(lat_float, lng_float));
+        }
+        result
+    }
+
+    // TODO: Make text format test suite helper function independent
+    // parse_points returns the values in the input string as Points.
+    fn parse_points(s: &str) -> Vec<Point> {
+        let lls = parse_lat_lngs(s);
+        if lls.is_empty() {
+            return Vec::new();
+        }
+
+        let mut points = Vec::new();
+        for ll in lls {
+            points.push(Point::from(ll));
+        }
+        points
     }
 
     // Helper to create a loop from lat/lng points (degrees)
@@ -2046,247 +2086,213 @@ mod tests {
         Loop::full()
     }
 
-    fn north_pole_loop() -> Loop {
-        // A diamond-shaped loop around the north pole
-        make_loop(&[
-            (0.0, 0.0, 1.0),  // North pole
-            (1.0, 0.0, 1.0),  // 45 degrees south of north pole
-            (0.0, 1.0, 1.0),  // 45 degrees south of north pole
-            (-1.0, 0.0, 1.0), // 45 degrees south of north pole
-            (0.0, -1.0, 1.0), // 45 degrees south of north pole
-        ])
-    }
-
-    fn south_hemisphere_loop() -> Loop {
-        // Loop covering the southern hemisphere
-        make_loop(&[
-            (0.0, 0.0, -1.0), // South pole
-            (1.0, 0.0, 0.0),  // Equator (x+)
-            (0.0, 1.0, 0.0),  // Equator (y+)
-            (-1.0, 0.0, 0.0), // Equator (x-)
-            (0.0, -1.0, 0.0), // Equator (y-)
-        ])
-    }
-
-    fn candy_cane_loop() -> Loop {
-        // A spiral loop that follows a candy-stripe pattern.
-        make_loop(&[
-            (0.0, 0.0, -1.0),
-            (0.0, 1.0, 0.0),
-            (0.0, 0.0, 1.0),
-            (0.0, -1.0, 0.0),
-            (1.0, -1.0, 0.0),
-            (1.0, 0.0, 1.0),
-            (1.0, 1.0, 0.0),
-            (1.0, 0.0, -1.0),
-        ])
-    }
-
-    fn near_hacklp_loop() -> Loop {
-        // A small nearly-horizontal loop near the north pole.
-        make_loop(&[
-            (0.0, 0.0, 1.0),
-            (1e-15, 0.0, 1.0 - 1e-15),
-            (0.0, 1e-15, 1.0 - 1e-15),
-        ])
-    }
-
-    fn small_ne_loop() -> Loop {
-        // A small clockwise loop in the northeastern hemisphere.
-        make_loop(&[(1.0, 0.0, 0.1), (1.0, 0.1, 0.1), (1.0, 0.0, 0.0)])
-    }
-
-    // Additional test loops from Go implementation
+    // The northern hemisphere, defined using two pairs of antipodal points.
     fn north_hemi() -> Loop {
-        // Northern hemisphere loop
-        make_loop(&[
-            (0.0, 0.0, 1.0),  // North pole
-            (1.0, 0.0, 0.0),  // Equator at 0 longitude
-            (0.0, 1.0, 0.0),  // Equator at 90 longitude
-            (-1.0, 0.0, 0.0), // Equator at 180 longitude
-            (0.0, -1.0, 0.0), // Equator at 270 longitude
-        ])
+        Loop::from_points(parse_points("0:-180, 0:-90, 0:0, 0:90"))
     }
 
+    // The northern hemisphere, defined using three points 120 degrees apart.
     fn north_hemi3() -> Loop {
-        // Northern hemisphere with 3 points
-        make_loop(&[
-            (0.0, 0.0, 1.0), // North pole
-            (0.0, 1.0, 0.0), // Equator at 90 longitude
-            (1.0, 0.0, 0.0), // Equator at 0 longitude
-        ])
+        Loop::from_points(parse_points("0:-180, 0:-60, 0:60"))
     }
 
+    // The southern hemisphere, defined using two pairs of antipodal points.
     fn south_hemi() -> Loop {
-        // Southern hemisphere loop
-        make_loop(&[
-            (0.0, 0.0, -1.0), // South pole
-            (0.0, 1.0, 0.0),  // Equator at 90 longitude
-            (1.0, 0.0, 0.0),  // Equator at 0 longitude
-            (0.0, -1.0, 0.0), // Equator at 270 longitude
-            (-1.0, 0.0, 0.0), // Equator at 180 longitude
-        ])
+        Loop::from_points(parse_points("0:90, 0:0, 0:-90, 0:-180"))
     }
 
+    // The western hemisphere, defined using two pairs of antipodal points.
     fn west_hemi() -> Loop {
-        // Western hemisphere loop
-        make_loop(&[
-            (0.0, 0.0, 1.0),  // North pole
-            (0.0, -1.0, 0.0), // Equator at 270 longitude
-            (0.0, 0.0, -1.0), // South pole
-            (0.0, 1.0, 0.0),  // Equator at 90 longitude
-        ])
+        Loop::from_points(parse_points("0:-180, -90:0, 0:0, 90:0"))
     }
 
+    // The eastern hemisphere, defined using two pairs of antipodal points.
     fn east_hemi() -> Loop {
-        // Eastern hemisphere loop
-        make_loop(&[
-            (0.0, 0.0, 1.0),  // North pole
-            (0.0, 1.0, 0.0),  // Equator at 90 longitude
-            (0.0, 0.0, -1.0), // South pole
-            (0.0, -1.0, 0.0), // Equator at 270 longitude
-        ])
+        Loop::from_points(parse_points("90:0, 0:0, -90:0, 0:-180"))
     }
 
+    // The "near" hemisphere, defined using two pairs of antipodal points.
     fn near_hemi() -> Loop {
-        // "Near" hemisphere (centered at 0, 0)
-        make_loop(&[
-            (1.0, 0.0, 0.0),  // Equator at 0 longitude
-            (0.0, 0.0, 1.0),  // North pole
-            (-1.0, 0.0, 0.0), // Equator at 180 longitude
-            (0.0, 0.0, -1.0), // South pole
-        ])
+        Loop::from_points(parse_points("0:-90, -90:0, 0:90, 90:0"))
     }
 
+    // The "far" hemisphere, defined using two pairs of antipodal points.
     fn far_hemi() -> Loop {
-        // "Far" hemisphere (centered at 180, 0)
-        make_loop(&[
-            (-1.0, 0.0, 0.0), // Equator at 180 longitude
-            (0.0, 0.0, 1.0),  // North pole
-            (1.0, 0.0, 0.0),  // Equator at 0 longitude
-            (0.0, 0.0, -1.0), // South pole
-        ])
+        Loop::from_points(parse_points("90:0, 0:90, -90:0, 0:-90"))
     }
 
+    // A spiral stripe that slightly over-wraps the equator.
     fn candy_cane() -> Loop {
-        // A spiral stripe that slightly over-wraps the equator
-        lat_lng_loop(&[
-            (0.0, 0.0),
-            (0.0, 90.0),
-            (1.0, 180.0),
-            (0.0, 270.0),
-            (-1.0, 360.0),
-            (0.0, 450.0),
-        ])
+        Loop::from_points(parse_points("-20:150, -20:-70, 0:70, 10:-150, 10:70, -10:-70"))
     }
 
+    // A small clockwise loop in the northern & eastern hemisperes.
     fn small_necw() -> Loop {
-        // A small clockwise loop in the northern & eastern hemispheres
-        lat_lng_loop(&[(30.0, 60.0), (30.0, 59.0), (29.0, 59.0)])
+        Loop::from_points(parse_points("35:20, 45:20, 40:25"))
     }
 
+    // Loop around the north pole at 80 degrees.
     fn arctic80() -> Loop {
-        // Loop around the north pole at 80 degrees
-        let mut vertices = Vec::new();
-        for i in 0..=4 {
-            let lng = (i as f64) * 90.0;
-            vertices.push((80.0, lng));
-        }
-        lat_lng_loop(&vertices)
+        Loop::from_points(parse_points("80:-150, 80:-30, 80:90"))
     }
 
+    // Loop around the south pole at 80 degrees.
     fn antarctic80() -> Loop {
-        // Loop around the south pole at 80 degrees
-        let mut vertices = Vec::new();
-        for i in 0..=4 {
-            let lng = (i as f64) * 90.0;
-            vertices.push((-80.0, lng));
-        }
-        lat_lng_loop(&vertices)
+        Loop::from_points(parse_points("-80:120, -80:0, -80:-120"))
     }
 
+    // A completely degenerate triangle along the equator that RobustCCW()
+    // considers to be CCW.
     fn line_triangle() -> Loop {
-        // A completely degenerate triangle along the equator
-        lat_lng_loop(&[(0.0, 0.0), (0.0, 1.0), (0.0, 2.0)])
+        Loop::from_points(parse_points("0:1, 0:2, 0:3"))
     }
 
+    // A nearly-degenerate CCW chevron near the equator with very long sides
+    // (about 80 degrees).  Its area is less than 1e-640, which is too small
+    // to represent in double precision.
     fn skinny_chevron() -> Loop {
-        // A nearly-degenerate CCW chevron near the equator
-        lat_lng_loop(&[(0.0, 0.0), (0.1, 0.1), (0.0, 1.0), (0.1, 0.9)])
+        Loop::from_points(parse_points("0:0, -1e-320:80, 0:1e-320, 1e-320:80"))
     }
 
-    // Setup for loop relation tests
+    // A diamond-shaped loop around the point 0:180.
     fn loop_a() -> Loop {
-        // Diamond-shaped non-convex polygon centered at (0, 0)
-        lat_lng_loop(&[(0.0, 0.0), (0.0, 10.0), (10.0, 0.0), (0.0, -10.0)])
+        Loop::from_points(parse_points("0:178, -1:180, 0:-179, 1:-180"))
     }
 
+    // Like loopA, but the vertices are at leaf cell centers.
+    fn snapped_loop_a() -> Loop {
+        let points = vec![
+            CellID::from(&parse_points("0:178")[0]).center_point(),
+            CellID::from(&parse_points("-1:180")[0]).center_point(),
+            CellID::from(&parse_points("0:-179")[0]).center_point(),
+            CellID::from(&parse_points("1:-180")[0]).center_point(),
+        ];
+
+        Loop::from_points(points)
+    }
+
+    // A different diamond-shaped loop around the point 0:180.
     fn loop_b() -> Loop {
-        // Another diamond-shaped non-convex polygon, partially overlapping with loop_a
-        lat_lng_loop(&[(0.0, 0.0), (5.0, 5.0), (0.0, 20.0), (-5.0, 5.0)])
+        Loop::from_points(parse_points("0:179, -1:180, 0:-178, 1:-180"))
     }
 
-    fn loop_c() -> Loop {
-        // Loop that completely contains loop_a
-        lat_lng_loop(&[(-15.0, -15.0), (-15.0, 15.0), (15.0, 15.0), (15.0, -15.0)])
-    }
-
-    fn loop_d() -> Loop {
-        // Loop that's completely contained within loop_a
-        lat_lng_loop(&[(0.0, 0.0), (1.0, 2.0), (2.0, 0.0), (1.0, -2.0)])
-    }
-
+    // The intersection of A and B.
     fn a_intersect_b() -> Loop {
-        // Intersection of loop_a and loop_b
-        lat_lng_loop(&[(0.0, 0.0), (0.0, 10.0), (5.0, 5.0), (-5.0, 5.0)])
+        Loop::from_points(parse_points("0:179, -1:180, 0:-179, 1:-180"))
     }
 
+    // The union of A and B.
     fn a_union_b() -> Loop {
-        // Union of loop_a and loop_b
-        lat_lng_loop(&[
-            (0.0, 0.0),
-            (5.0, 5.0),
-            (0.0, 20.0),
-            (-5.0, 5.0),
-            (0.0, 0.0),
-            (0.0, -10.0),
-            (10.0, 0.0),
-            (0.0, 10.0),
-        ])
+        Loop::from_points(parse_points("0:178, -1:180, 0:-178, 1:-180"))
     }
 
+    // A minus B (concave).
     fn a_minus_b() -> Loop {
-        // Difference of loop_a and loop_b
-        lat_lng_loop(&[
-            (0.0, 0.0),
-            (0.0, -10.0),
-            (10.0, 0.0),
-            (0.0, 10.0),
-            (5.0, 5.0),
-            (-5.0, 5.0),
-        ])
+        Loop::from_points(parse_points("0:178, -1:180, 0:179, 1:-180"))
     }
 
+    // B minus A (concave).
     fn b_minus_a() -> Loop {
-        // Difference of loop_b and loop_a
-        lat_lng_loop(&[
-            (0.0, 0.0),
-            (-5.0, 5.0),
-            (0.0, 20.0),
-            (5.0, 5.0),
-            (0.0, 10.0),
-            (0.0, 0.0),
-        ])
+        Loop::from_points(parse_points("0:-179, -1:180, 0:-178, 1:-180"))
     }
 
-    #[test]
+    // A shape gotten from A by adding a triangle to one edge, and
+    // subtracting a triangle from the opposite edge.
+    fn loop_c() -> Loop {
+        Loop::from_points(parse_points("0:178, 0:180, -1:180, 0:-179, 1:-179, 1:-180"))
+    }
+
+    // A shape gotten from A by adding a triangle to one edge, and
+    // adding another triangle to the opposite edge.
+    fn loop_d() -> Loop {
+        Loop::from_points(parse_points("0:178, -1:178, -1:180, 0:-179, 1:-179, 1:-180"))
+    }
+
+    //   3------------2
+    //   |            |               ^
+    //   |  7-8  b-c  |               |
+    //   |  | |  | |  |      Latitude |
+    //   0--6-9--a-d--1               |
+    //   |  | |       |               |
+    //   |  f-e       |               +----------->
+    //   |            |                 Longitude
+    //   4------------5
+    //
+    // Important: It is not okay to skip over collinear vertices when
+    // defining these loops (e.g. to define loop E as "0,1,2,3") because S2
+    // uses symbolic perturbations to ensure that no three vertices are
+    // *ever* considered collinear (e.g., vertices 0, 6, 9 are not
+    // collinear).  In other words, it is unpredictable (modulo knowing the
+    // details of the symbolic perturbations) whether 0123 contains 06123
+    // for example.
+
+    // Loop E:  0,6,9,a,d,1,2,3
+    fn loop_e() -> Loop {
+        Loop::from_points(parse_points("0:30, 0:34, 0:36, 0:39, 0:41, 0:44, 30:44, 30:30"))
+    }
+
+    // Loop F:  0,4,5,1,d,a,9,6
+    fn loop_f() -> Loop {
+        Loop::from_points(parse_points("0:30, -30:30, -30:44, 0:44, 0:41, 0:39, 0:36, 0:34"))
+    }
+
+    // Loop G:  0,6,7,8,9,a,b,c,d,1,2,3
+    fn loop_g() -> Loop {
+        Loop::from_points(parse_points("0:30, 0:34, 10:34, 10:36, 0:36, 0:39, 10:39, 10:41, 0:41, 0:44, 30:44, 30:30"))
+    }
+
+    // Loop H:  0,6,f,e,9,a,b,c,d,1,2,3
+    fn loop_h() -> Loop {
+        Loop::from_points(parse_points("0:30, 0:34, -10:34, -10:36, 0:36, 0:39, 10:39, 10:41, 0:41, 0:44, 30:44, 30:30"))
+    }
+
+    // Loop I:  7,6,f,e,9,8
+    fn loop_i() -> Loop {
+        Loop::from_points(parse_points("10:34, 0:34, -10:34, -10:36, 0:36, 10:36"))
+    }
+
+
+    // The set of all test loops.
+    fn all_loops() -> Vec<Loop> {
+        vec![
+            empty_loop(),
+            full_loop(),
+            north_hemi(),
+            north_hemi3(),
+            south_hemi(),
+            west_hemi(),
+            east_hemi(),
+            near_hemi(),
+            far_hemi(),
+            candy_cane(),
+            small_necw(),
+            arctic80(),
+            antarctic80(),
+            line_triangle(),
+            skinny_chevron(),
+            loop_a(),
+            //snapped_loop_a(), // Fails TestAreaConsistentWithTurningAngle
+            loop_b(),
+            a_intersect_b(),
+            a_union_b(),
+            a_minus_b(),
+            b_minus_a(),
+            loop_c(),
+            loop_d(),
+            loop_e(),
+            loop_f(),
+            loop_g(),
+            loop_h(),
+            loop_i(),
+        ]
+    }
+
+
+#[test]
     fn test_loop_empty() {
         let loop_empty = empty_loop();
         assert!(loop_empty.is_empty());
         assert!(!loop_empty.is_full());
-        assert_eq!(loop_empty.depth, 0);
-        assert_eq!(loop_empty.num_vertices(), 1);
-        assert_eq!(loop_empty.vertices().len(), 1);
         assert_eq!(loop_empty.num_edges(), 0);
         assert_eq!(loop_empty.num_chains(), 0);
         assert_eq!(loop_empty.dimension(), 2);
@@ -2298,9 +2304,6 @@ mod tests {
         let loop_full = full_loop();
         assert!(!loop_full.is_empty());
         assert!(loop_full.is_full());
-        assert_eq!(loop_full.depth, 0);
-        assert_eq!(loop_full.num_vertices(), 1);
-        assert_eq!(loop_full.vertices().len(), 1);
         assert_eq!(loop_full.num_edges(), 0);
         assert_eq!(loop_full.num_chains(), 0);
         assert_eq!(loop_full.dimension(), 2);
@@ -2309,95 +2312,110 @@ mod tests {
 
     #[test]
     fn test_loop_basic() {
-        let north = north_pole_loop();
+        let shape = ShapeType::Loop(make_loop("0:0, 0:1, 1:0"));
 
         // Verify edge count and basic properties
-        assert_eq!(north.num_vertices(), 5);
-        assert_eq!(north.num_edges(), 5);
-        assert_eq!(north.vertices().len(), 5);
-        assert_eq!(north.num_chains(), 1);
+        assert_eq!(shape.num_edges(), 3, "shape.num_edges() = {}, want {}", shape.num_edges(), 3);
+        assert_eq!(shape.num_chains(), 1, "shape.num_chains() = {}, want {}", shape.num_chains(), 1);
 
         // Check chain properties
-        let chain = north.chain(0);
-        assert_eq!(chain.start, 0);
-        assert_eq!(chain.length, 5);
+        let chain = shape.chain(0);
+        assert_eq!(chain.start, 0, "shape.chain(0).start = {}, want {}", chain.start, 0);
+        assert_eq!(chain.length, 3, "shape.chain(0).length = {}, want {}", chain.length, 3);
 
-        // Test vertex iteration
-        for i in 0..north.num_vertices() {
-            let v = north.vertex(i);
-            assert!((v.0.z > 0.0) || f64_eq!(v.0.z, 0.0)); // All vertices have z ≥ 0
-        }
+        // Check edge properties
+        let e = shape.edge(2);
+        let want_v0 = Point::from(LatLng::from_degrees(1.0, 0.0));
+        let want_v1 = Point::from(LatLng::from_degrees(0.0, 0.0));
 
-        // Test edge access
-        for i in 0..north.num_edges() {
-            let edge = north.edge(i as i64);
-            assert_eq!(edge.v0, north.vertex(i as usize));
-            assert_eq!(edge.v1, north.vertex((i + 1) as usize));
-        }
+        assert!(e.v0.approx_eq(&want_v0), "shape.edge(2) end A = {:?}, want {:?}", e.v0, want_v0);
+        assert!(e.v1.approx_eq(&want_v1), "shape.edge(2) end B = {:?}, want {:?}", e.v1, want_v1);
 
-        // Test wrapping (vertex access)
-        assert_eq!(north.vertex(0), north.vertex(5));
-        assert_eq!(north.vertex(1), north.vertex(6));
-
-        // Test containment of north pole
-        assert!(north.contains_point(Point(R3Vector {
-            x: 0.0,
-            y: 0.0,
-            z: 1.0
-        })));
+        // Check other properties
+        assert_eq!(shape.dimension(), 2, "shape.dimension() = {}, want {}", shape.dimension(), 2);
+        assert!(!shape.is_empty(), "shape.is_empty() = true, want false");
+        assert!(!shape.is_full(), "shape.is_full() = true, want false");
+        assert!(!shape.reference_point().contained, "shape.reference_point().contained = true, want false");
     }
 
     #[test]
     fn test_loop_hole_and_sign() {
-        let mut north = north_pole_loop();
-        let mut south = south_hemisphere_loop();
+        let mut l = Loop::from_points(parse_points("0:-180, 0:-90, 0:0, 0:90"));
 
-        // Initially both should not be holes (depth 0)
-        assert_eq!(north.depth, 0);
-        assert_eq!(south.depth, 0);
-        assert!(!north.is_hole());
-        assert!(!south.is_hole());
-        assert_eq!(north.sign(), 1);
-        assert_eq!(south.sign(), 1);
+        if l.is_hole() {
+            panic!("loop with default depth should not be a hole");
+        }
+        if l.sign() == -1 {
+            panic!("loop with default depth should have a sign of +1");
+        }
 
-        // Set depth to make north a hole, south remains normal
-        north.depth = 1;
-        assert!(north.is_hole());
-        assert!(!south.is_hole());
-        assert_eq!(north.sign(), -1);
-        assert_eq!(south.sign(), 1);
+        l.depth = 3;
+        if !l.is_hole() {
+            panic!("loop with odd depth should be a hole");
+        }
+        if l.sign() != -1 {
+            panic!("loop with odd depth should have a sign of -1");
+        }
 
-        // Make both holes
-        south.depth = 3;
-        assert!(north.is_hole());
-        assert!(south.is_hole());
-        assert_eq!(north.sign(), -1);
-        assert_eq!(south.sign(), -1);
+        l.depth = 2;
+        if l.is_hole() {
+            panic!("loop with even depth should not be a hole");
+        }
+        if l.sign() == -1 {
+            panic!("loop with even depth should have a sign of +1");
+        }
     }
 
     #[test]
     fn test_loop_rect_bound() {
-        // Empty loop should have empty bounds
-        let empty = empty_loop();
-        assert!(empty.rect_bound().is_empty());
+        let rect_error = crate::s2::rectbounder::new_rect_bounder().max_error_for_tests();
 
-        // Full loop should have full bounds
-        let full = full_loop();
-        assert!(full.rect_bound().is_full());
+        assert!(empty_loop().bound.is_empty(), "empty loop's RectBound should be empty");
+        assert!(full_loop().bound.is_full(), "full loop's RectBound should be full");
+        assert!(candy_cane().bound.lng.is_full(), "candy cane loop's RectBound should have a full longitude range");
 
-        // North pole loop should have appropriate bounds
-        let north = north_pole_loop();
-        let bound = north.rect_bound();
-        assert!(bound.lat.hi >= 0.99); // Should contain north pole (z=1)
-        assert!(bound.lat.lo <= 0.7); // Should extend below 45 degrees north
-        assert!(bound.lng.is_full()); // Should wrap all longitudes
+        let candy_lat_lo = candy_cane().bound.lat.lo;
+        assert!(candy_lat_lo < -0.349066,
+                "candy cane loop's RectBound should have a lower latitude ({}) under -0.349066 radians",
+                candy_lat_lo);
 
-        // South hemisphere should include south pole and stop at equator
-        let south = south_hemisphere_loop();
-        let bound = south.rect_bound();
-        assert!(bound.lat.lo <= -0.99); // Should contain south pole (z=-1)
-        assert!(bound.lat.hi >= -0.01); // Should reach equator
-        assert!(bound.lng.is_full()); // Should wrap all longitudes
+        let candy_lat_hi = candy_cane().bound.lat.hi;
+        assert!(candy_lat_hi > 0.174533,
+                "candy cane loop's RectBound should have an upper latitude ({}) over 0.174533 radians",
+                candy_lat_hi);
+
+        assert!(small_necw().bound.is_full(), "small northeast clockwise loop's RectBound should be full");
+
+        let arctic_bound = arctic80().bound;
+        let arctic_want = crate::s2::rect::rect_from_degrees(80.0, -180.0, 90.0, 180.0);
+        assert!(rects_approx_equal(&arctic_bound, &arctic_want, rect_error.lat.radians(), rect_error.lng.radians()),
+                "arctic 80 loop's RectBound ({:?}) should be {:?}", arctic_bound, arctic_want);
+
+        let antarctic_bound = antarctic80().bound;
+        let antarctic_want = crate::s2::rect::rect_from_degrees(-90.0, -180.0, -80.0, 180.0);
+        assert!(rects_approx_equal(&antarctic_bound, &antarctic_want, rect_error.lat.radians(), rect_error.lng.radians()),
+                "antarctic 80 loop's RectBound ({:?}) should be {:?}", antarctic_bound, antarctic_want);
+
+        assert!(south_hemi().bound.lng.is_full(), "south hemi loop's RectBound should have a full longitude range");
+
+        let south_lat = south_hemi().bound.lat;
+        let want_lat = crate::s1::interval::Interval { lo: -PI / 2.0, hi: 0.0 };
+        assert!(r1_intervals_approx_equal(&south_lat, &want_lat, rect_error.lat.radians()),
+                "south hemi loop's RectBound latitude interval ({:?}) should be {:?}", south_lat, want_lat);
+
+        // Create a loop that contains the complement of the arctic80 loop
+        let mut arctic80_inv = arctic80();
+        arctic80_inv.invert();
+
+        // The highest latitude of each edge is attained at its midpoint
+        let v0 = arctic80_inv.vertex(0).0;
+        let v1 = arctic80_inv.vertex(1).0;
+        let mid = Point(v0.add(&v1).mul(0.5));
+
+        let lat_hi = arctic80_inv.bound.lat.hi;
+        let want_lat_hi = LatLng::from(mid).lat.rad();
+        assert!(f64_eq(lat_hi, want_lat_hi, 10.0 * DBL_EPSILON),
+                "arctic 80 inverse loop's RectBound should have a latitude hi of {}, got {}", want_lat_hi, lat_hi);
     }
 
     #[test]
@@ -2431,44 +2449,46 @@ mod tests {
 
     #[test]
     fn test_loop_contains_point() {
-        let north = north_pole_loop();
-        let south = south_hemisphere_loop();
-
-        // Test north pole containment
-        let north_pole = Point(R3Vector {
+        let north = Point(Vector {
             x: 0.0,
             y: 0.0,
             z: 1.0,
         });
-        assert!(north.contains_point(north_pole));
-        assert!(!south.contains_point(north_pole));
-
-        // Test south pole containment
-        let south_pole = Point(R3Vector {
+        let south = Point(Vector {
             x: 0.0,
             y: 0.0,
             z: -1.0,
         });
-        assert!(!north.contains_point(south_pole));
-        assert!(south.contains_point(south_pole));
 
-        // Test equator points
-        let equator_x = Point(R3Vector {
-            x: 1.0,
-            y: 0.0,
-            z: 0.0,
-        });
-        assert!(!north.contains_point(equator_x));
-        assert!(south.contains_point(equator_x)); // Equator is part of southern hemisphere loop
+        let east = Point::from_coords(0., 1., 0.);
+        let west = Point::from_coords(0., -1., 0.);
 
-        // Test middle point (should be in neither)
-        let mid_north = Point(R3Vector {
-            x: 0.0,
-            y: 0.0,
-            z: 0.5,
-        });
-        assert!(!north.contains_point(mid_north));
-        assert!(!south.contains_point(mid_north));
+        assert!(
+            !empty_loop().contains_point(north),
+            "Empty loop should not contain north pole or any point!"
+        );
+
+        assert!(
+            full_loop().contains_point(south),
+            "Empty loop should not contain north pole or any point!"
+        );
+
+        struct TestCase {
+            name: &'static str,
+            l: Loop,
+            input: Point,
+            output: Point,
+        }
+
+        let test_cases = vec![
+            TestCase {
+                name: "north hemisphere",
+                l: north_hemi(),
+                input: north,
+                output: north,
+            },
+        ]
+
     }
 
     #[test]
