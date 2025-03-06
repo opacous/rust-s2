@@ -211,12 +211,12 @@ fn robust_normal_with_length(x: &Vector, y: &Vector) -> (Vector, f64) {
 // intersectionSimple is not used by the C++ so it is skipped here.
 */
 
-// projection returns the projection of aNorm onto X (x.dot(aNorm)), and a bound
-// on the error in the result. aNorm is not necessarily unit length.
+// projection returns the projection of a_norm onto X (x.dot(a_norm)), and a bound
+// on the error in the result. a_norm is not necessarily unit length.
 //
-// The remaining parameters (the length of aNorm (aNormLen) and the edge endpoints
+// The remaining parameters (the length of a_norm (a_norm_len) and the edge endpoints
 // a0 and a1) allow this dot product to be computed more accurately and efficiently.
-fn projection(x: &Vector, aNorm: &Vector, aNormLen: f64, a0: &Point, a1: &Point) -> (f64, f64) {
+fn projection(x: &Vector, a_norm: &Vector, a_norm_len: f64, a0: &Point, a1: &Point) -> (f64, f64) {
     // The error in the dot product is proportional to the lengths of the input
     // vectors, so rather than using x itself (a unit-length vector) we use
     // the vectors from x to the closer of the two edge endpoints. This
@@ -234,10 +234,10 @@ fn projection(x: &Vector, aNorm: &Vector, aNormLen: f64, a0: &Point, a1: &Point)
 
     if x0Dist2 < x1Dist2 || (x0Dist2 == x1Dist2 && x0.cmp(&x1) == Ordering::Less) {
         dist = x0Dist2.sqrt();
-        proj = x0.dot(&aNorm);
+        proj = x0.dot(&a_norm);
     } else {
         dist = x1Dist2.sqrt();
-        proj = x1.dot(&aNorm)
+        proj = x1.dot(&a_norm)
     }
 
     // This calculation bounds the error from all sources: the computation of
@@ -249,7 +249,7 @@ fn projection(x: &Vector, aNorm: &Vector, aNormLen: f64, a0: &Point, a1: &Point)
     // ||N'-N|| <= ((1 + 2 * sqrt(3))||N|| + 32 * sqrt(3) * dblError) * epsilon
     // |(A.B)'-(A.B)| <= (1.5 * (A.B) + 1.5 * ||A|| * ||B||) * epsilon
     // ||(X-Y)'-(X-Y)|| <= ||X-Y|| * epsilon
-    let bound = (((3.5 + 2.0 * 3.0_f64.sqrt()) * aNormLen + 32. * 3.0_f64.sqrt() * DBL_EPSILON)
+    let bound = (((3.5 + 2.0 * 3.0_f64.sqrt()) * a_norm_len + 32. * 3.0_f64.sqrt() * DBL_EPSILON)
         * dist
         + 1.5 * proj.abs())
         * EPSILON;
@@ -311,14 +311,14 @@ fn intersect_stable_sorted(
     let mut pt = Point::default();
 
     // Compute the normal of the plane through (a0, a1) in a stable way.
-    let aNorm = a0.0.sub(a1.0).cross(&a0.0.add(a1.0));
-    let aNormLen = aNorm.norm();
+    let a_norm = a0.0.sub(a1.0).cross(&a0.0.add(a1.0));
+    let a_norm_len = a_norm.norm();
     let bLen = b1.sub(b0).norm();
 
     // Compute the projection (i.e., signed distance) of b0 and b1 onto the
-    // plane through (a0, a1).  Distances are scaled by the length of aNorm.
-    let (b0Dist, b0Error) = projection(&b0.0, &aNorm, aNormLen, &a0, &a1);
-    let (b1Dist, b1Error) = projection(&b1.0, &aNorm, aNormLen, &a0, &a1);
+    // plane through (a0, a1).  Distances are scaled by the length of a_norm.
+    let (b0Dist, b0Error) = projection(&b0.0, &a_norm, a_norm_len, &a0, &a1);
+    let (b1Dist, b1Error) = projection(&b1.0, &a_norm, a_norm_len, &a0, &a1);
 
     // The total distance from b0 to b1 measured perpendicularly to (a0,a1) is
     // |b0Dist - b1Dist|.  Note that b0Dist and b1Dist generally have
@@ -328,28 +328,28 @@ fn intersect_stable_sorted(
     //
     // It can be shown that the maximum error in the interpolation fraction is
     //
-    //   (b0Dist * b1Error - b1Dist * b0Error) / (distSum * (distSum - errorSum))
+    //   (b0Dist * b1Error - b1Dist * b0Error) / (dist_sum * (dist_sum - error_sum))
     //
     // We save ourselves some work by scaling the result and the error bound by
-    // "distSum", since the result is normalized to be unit length anyway.
-    let distSum = (b0Dist - b1Dist).abs();
-    let errorSum = b0Error + b1Error;
-    if distSum <= errorSum {
+    // "dist_sum", since the result is normalized to be unit length anyway.
+    let dist_sum = (b0Dist - b1Dist).abs();
+    let error_sum = b0Error + b1Error;
+    if dist_sum <= error_sum {
         return Err(pt); // Error is unbounded in this case.
     }
 
     let x = b1.mul(b0Dist).sub(b0.mul(b1Dist));
-    let err = bLen * (b0Dist * b1Error - b1Dist * b0Error).abs() / (distSum - errorSum)
-        + 2.0 * distSum * DBL_EPSILON;
+    let err = bLen * (b0Dist * b1Error - b1Dist * b0Error).abs() / (dist_sum - error_sum)
+        + 2.0 * dist_sum * DBL_EPSILON;
 
     // Finally we normalize the result, compute the corresponding error, and
     // check whether the total error is acceptable.
-    let xLen = x.norm();
-    if err > (INTERSECTION_ERROR - EPSILON) * xLen {
+    let x_len = x.norm();
+    if err > (INTERSECTION_ERROR - EPSILON) * x_len {
         return Err(pt);
     }
 
-    Ok(x.mul(1.0 / xLen))
+    Ok(x.mul(1.0 / x_len))
 }
 
 // intersectionExact returns the intersection point of (a0, a1) and (b0, b1)
@@ -360,18 +360,18 @@ fn intersect_stable_sorted(
 fn intersection_exact(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Point {
     // Since we are using presice arithmetic, we don't need to worry about
     // numerical stability.
-    let a0P: PreciseVector = a0.0.into();
-    let a1P: PreciseVector = a1.0.into();
-    let b0P: PreciseVector = b0.0.into();
-    let b1P: PreciseVector = b1.0.into();
-    let aNormP = a0P.cross(&a1P);
-    let bNormP = b0P.cross(&b1P);
-    let xP = aNormP.cross(&bNormP);
+    let a0_p: PreciseVector = a0.0.into();
+    let a1_p: PreciseVector = a1.0.into();
+    let b0_p: PreciseVector = b0.0.into();
+    let b1_p: PreciseVector = b1.0.into();
+    let a_norm_p = a0_p.cross(&a1_p);
+    let b_norm_p = b0_p.cross(&b1_p);
+    let x_p = a_norm_p.cross(&b_norm_p);
 
     // The final Normalize() call is done in double precision, which creates a
     // directional error of up to 2*dblError. (Precise conversion and Normalize()
     // each contribute up to dblError of directional error.)
-    let mut x: Vector = xP.into();
+    let mut x: Vector = x_p.into();
 
     if x == Vector::default() {
         // The two edges are exactly collinear, but we still consider them to be
@@ -380,19 +380,19 @@ fn intersection_exact(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Point {
         // those two we return the one that is lexicographically smallest.
         x = Vector::new(10.0, 10.0, 10.0); // Greater than any valid S2Point
 
-        let aNorm = Point(aNormP.into());
-        let bNorm = Point(bNormP.into());
+        let a_norm = Point(a_norm_p.into());
+        let b_norm = Point(b_norm_p.into());
 
-        if ordered_ccw(b0, a0, b1, &bNorm) && a0.0 < x {
+        if ordered_ccw(b0, a0, b1, &b_norm) && a0.0 < x {
             return *a0;
         }
-        if ordered_ccw(b0, a1, b1, &bNorm) && a1.0 < x {
+        if ordered_ccw(b0, a1, b1, &b_norm) && a1.0 < x {
             return *a1;
         }
-        if ordered_ccw(a0, b0, a1, &aNorm) && b0.0 < x {
+        if ordered_ccw(a0, b0, a1, &a_norm) && b0.0 < x {
             return *b0;
         }
-        if ordered_ccw(a0, b1, a1, &aNorm) && b1.0 < x {
+        if ordered_ccw(a0, b1, a1, &a_norm) && b1.0 < x {
             return *b1;
         }
     }

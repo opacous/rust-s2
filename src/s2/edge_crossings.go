@@ -224,12 +224,12 @@ func robustNormalWithLength(x, y r3.Vector) (r3.Vector, float64) {
 // intersectionSimple is not used by the C++ so it is skipped here.
 */
 
-// projection returns the projection of aNorm onto X (x.Dot(aNorm)), and a bound
-// on the error in the result. aNorm is not necessarily unit length.
+// projection returns the projection of a_norm onto X (x.Dot(a_norm)), and a bound
+// on the error in the result. a_norm is not necessarily unit length.
 //
-// The remaining parameters (the length of aNorm (aNormLen) and the edge endpoints
+// The remaining parameters (the length of a_norm (a_norm_len) and the edge endpoints
 // a0 and a1) allow this dot product to be computed more accurately and efficiently.
-func projection(x, aNorm r3.Vector, aNormLen float64, a0, a1 Point) (proj, bound float64) {
+func projection(x, a_norm r3.Vector, a_norm_len float64, a0, a1 Point) (proj, bound float64) {
 	// The error in the dot product is proportional to the lengths of the input
 	// vectors, so rather than using x itself (a unit-length vector) we use
 	// the vectors from x to the closer of the two edge endpoints. This
@@ -245,10 +245,10 @@ func projection(x, aNorm r3.Vector, aNormLen float64, a0, a1 Point) (proj, bound
 	var dist float64
 	if x0Dist2 < x1Dist2 || (x0Dist2 == x1Dist2 && x0.Cmp(x1) == -1) {
 		dist = math.Sqrt(x0Dist2)
-		proj = x0.Dot(aNorm)
+		proj = x0.Dot(a_norm)
 	} else {
 		dist = math.Sqrt(x1Dist2)
-		proj = x1.Dot(aNorm)
+		proj = x1.Dot(a_norm)
 	}
 
 	// This calculation bounds the error from all sources: the computation of
@@ -260,7 +260,7 @@ func projection(x, aNorm r3.Vector, aNormLen float64, a0, a1 Point) (proj, bound
 	// ||N'-N|| <= ((1 + 2 * sqrt(3))||N|| + 32 * sqrt(3) * dblError) * epsilon
 	// |(A.B)'-(A.B)| <= (1.5 * (A.B) + 1.5 * ||A|| * ||B||) * epsilon
 	// ||(X-Y)'-(X-Y)|| <= ||X-Y|| * epsilon
-	bound = (((3.5+2*math.Sqrt(3))*aNormLen+32*math.Sqrt(3)*dblError)*dist + 1.5*math.Abs(proj)) * epsilon
+	bound = (((3.5+2*math.Sqrt(3))*a_norm_len+32*math.Sqrt(3)*dblError)*dist + 1.5*math.Abs(proj)) * epsilon
 	return proj, bound
 }
 
@@ -306,14 +306,14 @@ func intersectionStableSorted(a0, a1, b0, b1 Point) (Point, bool) {
 	var pt Point
 
 	// Compute the normal of the plane through (a0, a1) in a stable way.
-	aNorm := a0.Sub(a1.Vector).Cross(a0.Add(a1.Vector))
-	aNormLen := aNorm.Norm()
+	a_norm := a0.Sub(a1.Vector).Cross(a0.Add(a1.Vector))
+	a_norm_len := a_norm.Norm()
 	bLen := b1.Sub(b0.Vector).Norm()
 
 	// Compute the projection (i.e., signed distance) of b0 and b1 onto the
-	// plane through (a0, a1).  Distances are scaled by the length of aNorm.
-	b0Dist, b0Error := projection(b0.Vector, aNorm, aNormLen, a0, a1)
-	b1Dist, b1Error := projection(b1.Vector, aNorm, aNormLen, a0, a1)
+	// plane through (a0, a1).  Distances are scaled by the length of a_norm.
+	b0Dist, b0Error := projection(b0.Vector, a_norm, a_norm_len, a0, a1)
+	b1Dist, b1Error := projection(b1.Vector, a_norm, a_norm_len, a0, a1)
 
 	// The total distance from b0 to b1 measured perpendicularly to (a0,a1) is
 	// |b0Dist - b1Dist|.  Note that b0Dist and b1Dist generally have
@@ -323,29 +323,29 @@ func intersectionStableSorted(a0, a1, b0, b1 Point) (Point, bool) {
 	//
 	// It can be shown that the maximum error in the interpolation fraction is
 	//
-	//   (b0Dist * b1Error - b1Dist * b0Error) / (distSum * (distSum - errorSum))
+	//   (b0Dist * b1Error - b1Dist * b0Error) / (dist_sum * (dist_sum - error_sum))
 	//
 	// We save ourselves some work by scaling the result and the error bound by
-	// "distSum", since the result is normalized to be unit length anyway.
-	distSum := math.Abs(b0Dist - b1Dist)
-	errorSum := b0Error + b1Error
-	if distSum <= errorSum {
+	// "dist_sum", since the result is normalized to be unit length anyway.
+	dist_sum := math.Abs(b0Dist - b1Dist)
+	error_sum := b0Error + b1Error
+	if dist_sum <= error_sum {
 		return pt, false // Error is unbounded in this case.
 	}
 
 	x := b1.Mul(b0Dist).Sub(b0.Mul(b1Dist))
 	err := bLen*math.Abs(b0Dist*b1Error-b1Dist*b0Error)/
-		(distSum-errorSum) + 2*distSum*epsilon
+		(dist_sum-error_sum) + 2*dist_sum*epsilon
 
 	// Finally we normalize the result, compute the corresponding error, and
 	// check whether the total error is acceptable.
-	xLen := x.Norm()
+	x_len := x.Norm()
 	maxError := intersectionError
-	if err > (float64(maxError)-epsilon)*xLen {
+	if err > (float64(maxError)-epsilon)*x_len {
 		return pt, false
 	}
 
-	return Point{x.Mul(1 / xLen)}, true
+	return Point{x.Mul(1 / x_len)}, true
 }
 
 // intersectionExact returns the intersection point of (a0, a1) and (b0, b1)
@@ -376,7 +376,7 @@ func intersectionExact(a0, a1, b0, b1 Point) Point {
 		// those two we return the one that is lexicographically smallest.
 		x = r3.Vector{10, 10, 10} // Greater than any valid S2Point
 
-		aNorm := Point{aNormP.Vector()}
+		a_norm := Point{aNormP.Vector()}
 		bNorm := Point{bNormP.Vector()}
 		if OrderedCCW(b0, a0, b1, bNorm) && a0.Cmp(x) == -1 {
 			return a0
@@ -384,10 +384,10 @@ func intersectionExact(a0, a1, b0, b1 Point) Point {
 		if OrderedCCW(b0, a1, b1, bNorm) && a1.Cmp(x) == -1 {
 			return a1
 		}
-		if OrderedCCW(a0, b0, a1, aNorm) && b0.Cmp(x) == -1 {
+		if OrderedCCW(a0, b0, a1, a_norm) && b0.Cmp(x) == -1 {
 			return b0
 		}
-		if OrderedCCW(a0, b1, a1, aNorm) && b1.Cmp(x) == -1 {
+		if OrderedCCW(a0, b1, a1, a_norm) && b1.Cmp(x) == -1 {
 			return b1
 		}
 	}
