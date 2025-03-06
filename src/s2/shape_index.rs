@@ -13,6 +13,7 @@ use crate::s2::stuv::{face, face_uv_to_xyz, valid_face_xyz_to_uv};
 use crate::shape::{Edge, Shape, ShapeType};
 use crate::shape_index::Status::Fresh;
 use std::collections::{BTreeMap, HashMap};
+use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, Sub};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, RwLock};
@@ -640,6 +641,12 @@ pub struct ShapeIndex {
 
     // The maximum number of edges per cell.
     max_edges_per_cell: i32,
+}
+
+impl Debug for ShapeIndex {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        unimplemented!("Debugging formatting for ShapeIndex - it is never going to be comprehensive but it is useful for debugging")
+    }
 }
 
 impl ShapeIndex {
@@ -1708,7 +1715,7 @@ impl ShapeIndex {
         let guard = self.index_data.read().unwrap();
         // Clone the cell if it exists
         if let Some(cell) = guard.cell_map.get(&id) {
-            // UNSAFE AS FUCK: We're extending the lifetime from guard to 'a 
+            // UNSAFE AS FUCK: We're extending the lifetime from guard to 'a
             // this is only valid if ShapeIndexData lives as long as ShapeIndex
             Some(unsafe { std::mem::transmute::<&ShapeIndexCell, &'a ShapeIndexCell>(cell) })
         } else {

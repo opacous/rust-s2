@@ -42,6 +42,7 @@ use std::f64::consts::PI;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::{Add, Div, Mul, Sub};
+use crate::error::S2Error;
 
 pub enum OriginBound {
     OriginInside,
@@ -103,7 +104,7 @@ pub struct Loop {
     /// depth is the nesting depth of this Loop if it is contained by a Polygon
     /// or other shape and is used to determine if this loop represents a hole
     /// or a filled in portion.
-    depth: i32,
+    pub(crate) depth: i32,
 
     /// bound is a conservative bound on all points contained by this loop.
     /// If l.ContainsPoint(P), then l.bound.ContainsPoint(P).
@@ -117,6 +118,20 @@ pub struct Loop {
 
     /// index is the spatial index for this Loop.
     index: ShapeIndex,
+}
+
+impl PartialEq for Loop {
+    fn eq(&self, other: &Self) -> bool {
+        todo!()
+    }
+}
+
+impl Eq for Loop {}
+
+impl Hash for Loop {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        todo!()
+    }
 }
 
 impl Loop {
@@ -176,12 +191,6 @@ const FULL_LOOP_POINT: Point = Point(R3Vector {
 
 impl Debug for Loop {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
-    }
-}
-
-impl Hash for Loop {
-    fn hash<H: Hasher>(&self, state: &mut H) {
         todo!()
     }
 }
@@ -1234,6 +1243,54 @@ impl Loop {
         Loop::from_points(regular_points_for_frame(frame, radius, n_vertices))
     }
 
+    // findValidationErrorNoIndex reports whether this is not a valid loop, but
+    // skips checks that would require a ShapeIndex to be built for the loop. This
+    // is primarily used by Polygon to do validation so it doesn't trigger the
+    // creation of unneeded ShapeIndices.
+    pub fn find_validation_error_no_index(&self) -> Result<(), S2Error> {
+        // All vertices must be unit length.
+        for (i, v) in self.vertices.iter().enumerate() {
+            if !v.0.is_unit() {
+                return S2Error::Other(format!("vertex {} is not unit length", i)).into();
+            }
+
+        }
+
+        for i, v := range self.vertices {
+            if !v.IsUnit() {
+                return fmt.Errorf("vertex %d is not unit length", i)
+            }
+        }
+
+        // Loops must have at least 3 vertices (except for empty and full).
+        if len(self.vertices) < 3 {
+            if self.isEmptyOrFull() {
+                return nil // Skip remaining tests.
+            }
+            return fmt.Errorf("non-empty, non-full loops must have at least 3 vertices")
+        }
+
+        // Loops are not allowed to have any duplicate vertices or edge crossings.
+        // We split this check into two parts. First we check that no edge is
+        // degenerate (identical endpoints). Then we check that there are no
+        // intersections between non-adjacent edges (including at vertices). The
+        // second check needs the ShapeIndex, so it does not fall within the scope
+        // of this method.
+        for i, v := range self.vertices {
+            if v == self.Vertex(i+1) {
+                return fmt.Errorf("edge %d is degenerate (duplicate vertex)", i)
+            }
+
+            // Antipodal vertices are not allowed.
+            if other := (Point{self.Vertex(i + 1).Mul(-1)}); v == other {
+                return fmt.Errorf("vertices %d and %d are antipodal", i,
+                (i+1)%len(l.vertices))
+            }
+        }
+
+        return nil
+    }
+
     /// encode encodes the loop to a byte vector.
     ///
     /// The encoding consists of:
@@ -1674,7 +1731,7 @@ impl Loop {
 
     /// Returns the maximum error in TurningAngle. The value is not constant; it
     /// depends on the loop.
-    fn turning_angle_max_error(&self) -> f64 {
+    pub(crate) fn turning_angle_max_error(&self) -> f64 {
         // The maximum error can be bounded as follows:
         //   3.00 * dblEpsilon    for RobustCrossProd(b, a)
         //   3.00 * dblEpsilon    for RobustCrossProd(c, b)

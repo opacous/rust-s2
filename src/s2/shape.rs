@@ -15,6 +15,7 @@ use crate::r2::point::Point;
 use crate::s2::point::Point as s2Point;
 use std::cmp::*;
 use crate::lax_loop::{LaxLoop};
+use crate::polygon::Polygon;
 use crate::r#loop::Loop;
 // Edge represents a geodesic edge consisting of two vertices. Zero-length edges are
 // allowed, and can be used to represent points.
@@ -264,5 +265,5 @@ pub enum ShapeType {
     Loop(Loop),
     LaxLoop(LaxLoop),
     // Polyline(()),
-    // Polygon(()),
+    Polygon(Polygon),
 }

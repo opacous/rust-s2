@@ -110,7 +110,7 @@ impl PaddedCell {
         if id.is_face() {
             let limit = padding + 1.0;
             let bound =
-                Rect::from_points(&[R2Point::new(-limit, limit), R2Point::new(limit, -limit)]);
+                Rect::from_points(&[R2Point::new(-limit, limit), R2Point::new(-limit, limit)]);
             let middle = Rect::from_intervals(
                 Interval::new(-padding, padding).into(),
                 Interval::new(-padding, padding).into(),
