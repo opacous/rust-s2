@@ -21,6 +21,12 @@ use std::f64::consts::PI;
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Point(pub Vector);
 
+impl PartialEq<&Point> for Point {
+    fn eq(&self, other: &&Point) -> bool {
+        self.0 == other.0
+    }
+}
+
 impl std::ops::Add<Point> for Point {
     type Output = Point;
     fn add(self, other: Point) -> Self::Output {

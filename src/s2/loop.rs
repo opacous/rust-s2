@@ -49,11 +49,11 @@ pub enum OriginBound {
     BoundEncoded,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialOrd, PartialEq)]
 pub enum VertexTraversalDirection {
     Forward, // vertices are traversed starting from firstIdx and incrementing the index. This is the "forward" direction. The sequence will be firstIdx, firstIdx + 1, firstIdx + 2,
     Backward, // vertices are traversed starting from firstIdx + n (where n is the loop length) and decrementing the index. This is the "backward" direction. The sequence will be firstIdx + n, firstIdx + n - 1, firstIdx + n - 2
-}
+}i
 
 impl Into<i32> for VertexTraversalDirection {
     fn into(self) -> i32 {
@@ -396,7 +396,7 @@ impl Loop {
         if self.index.num_shapes() == 0 || // Index has not been initialized yet
            self.vertices.len() <= MAX_BRUTE_FORCE_VERTICES
         {
-            return self.brute_force_contains_point(p);
+            return self.brute_force_contains_point(&p);
         }
 
         // Otherwise, look up the point in the index.
@@ -410,13 +410,13 @@ impl Loop {
     /// Reports if the given point is contained by this loop, by doing a simple
     /// brute force check.  This method does not use the ShapeIndex, so it is only
     /// preferable below a certain size of loop.
-    fn brute_force_contains_point(&self, p: Point) -> bool {
+    pub fn brute_force_contains_point(&self, p: &Point) -> bool {
         let origin = Point::origin();
         let mut inside = self.origin_inside;
         let mut crosser = EdgeCrosser::new_chain_edge_crosser(&origin, &p, &self.vertex(0));
         for i in 1..=self.vertices.len() {
             // add vertex 0 twice
-            inside = inside != crosser.edge_or_vertex_chain_crossing(self.vertex(i));
+            inside = inside != crosser.edge_or_vertex_chain_crossing(&self.vertex(i));
         }
         inside
     }
@@ -445,11 +445,11 @@ impl Loop {
 
             for &ai in &a_clipped.edges {
                 if ai != ai_prev + 1 {
-                    crosser.restart_at(self.vertex(ai as usize));
+                    crosser.restart_at(&self.vertex(ai as usize));
                 }
                 ai_prev = ai;
                 inside =
-                    inside != crosser.edge_or_vertex_chain_crossing(self.vertex((ai + 1) as usize));
+                    inside != crosser.edge_or_vertex_chain_crossing(&self.vertex((ai + 1) as usize));
             }
         }
         inside
@@ -1212,8 +1212,8 @@ impl Loop {
         let bound = target.bound_uv().expanded_by_margin(maxError);
         for (_, ai) in aClipped.edges.iter().enumerate() {
             let v0_outer = clip_to_padded_face(
-                self.vertex(*ai as usize),
-                self.vertex((ai + 1) as usize),
+                &self.vertex(*ai as usize),
+                &self.vertex((ai + 1) as usize),
                 target.face(),
                 maxError,
             );
@@ -1653,7 +1653,7 @@ impl Loop {
     // loop vertices to be traversed in a canonical order. The return values are
     // chosen such that (first, ..., first+n*dir) are in the range [0, 2*n-1] as
     // expected by the Vertex method.
-    fn canonical_first_vertex(&self) -> (usize, VertexTraversalDirection) {
+    pub(crate) fn canonical_first_vertex(&self) -> (usize, VertexTraversalDirection) {
         let mut first_idx = 0;
         let n = self.vertices.len();
         for i in 1..n {

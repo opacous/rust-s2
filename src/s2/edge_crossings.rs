@@ -79,7 +79,7 @@ impl Crossing {
     // results are always consistent (see RobustSign).
     pub fn crossing_sign(a: &Point, b: &Point, c: &Point, d: &Point) -> Crossing {
         let mut crosser = EdgeCrosser::new_chain_edge_crosser(a, b, c);
-        crosser.chain_crossing_sign(*d)
+        crosser.chain_crossing_sign(d)
     }
 }
 
@@ -698,7 +698,7 @@ mod tests {
                 let d = Point(p.0.add(d2.0.mul((1.0 - c_fraction) * cd_len)).normalize());
 
                 let mut crosser = EdgeCrosser::new(&a, &b);
-                if crosser.crossing_sign(c, d) == Crossing::Cross {
+                if crosser.crossing_sign(&c, &d) == Crossing::Cross {
                     println!("Found crossing segments:");
                     println!("  a: {:?}", a);
                     println!("  b: {:?}", b);

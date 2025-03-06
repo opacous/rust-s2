@@ -36,6 +36,8 @@ use std::collections::HashMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
+use super::region::Region;
+
 /// Polygon represents a sequence of zero or more loops; recall that the
 /// interior of a loop is defined to be its left-hand side (see Loop).
 ///
@@ -242,13 +244,14 @@ impl Polygon {
     /// insert_loop adds the given loop to the loop map under the specified parent.
     /// All children of the new entry are checked to see if they need to move up to
     /// a different level.
-    fn insert_loop(lm: &mut LoopMap, new_loop: &Loop, mut parent: &Loop) {
+    fn insert_loop<'a>(lm: &mut LoopMap<'a>, new_loop: &'a Loop, parent: &'a Loop) {
         // Find appropriate parent
+        let mut current_parent = parent;
         'outer: loop {
-            let children = lm.get(parent).cloned().unwrap_or_default();
+            let children = lm.get(current_parent).cloned().unwrap_or_default();
             for child in &children {
-                if unsafe { (**child).contains_nested(unsafe { &*new_loop }) } {
-                    parent = *child;
+                if child.contains_nested(new_loop) {
+                    current_parent = child;
                     continue 'outer;
                 }
             }
@@ -260,13 +263,13 @@ impl Polygon {
         let mut new_children = lm.get(new_loop).cloned().unwrap_or_default();
 
         // Get current children of parent
-        let mut children = lm.get(parent).cloned().unwrap_or_default();
+        let mut children = lm.get(current_parent).cloned().unwrap_or_default();
 
         // Check if any children should move to be under the new loop
         let mut i = 0;
         while i < children.len() {
             let child = children[i];
-            if unsafe { (*new_loop).contains_nested(unsafe { &*child }) } {
+            if new_loop.contains_nested(child) {
                 new_children.push(child);
                 children.remove(i);
             } else {
@@ -276,7 +279,7 @@ impl Polygon {
 
         // Update the loop map
         lm.insert(new_loop, new_children);
-        lm.insert(parent, {
+        lm.insert(current_parent, {
             let mut temp = children;
             temp.push(new_loop);
             temp
@@ -296,7 +299,7 @@ impl Polygon {
                 depth = (*loop_target).depth;
                 self.loops.push((*loop_target).clone());
             }
-            
+
             // TODO: This is a odd enough pattern in go already (getting a potentially null pointer)
             //       perhaps it is better to refactor into better rust idiom once the tests are good.
             let children = lm.get(&loop_target.unwrap()).cloned().unwrap_or_default();
@@ -653,7 +656,7 @@ impl Polygon {
 
     /// rect_bound returns a bounding latitude-longitude rectangle.
     pub fn rect_bound(&self) -> Rect {
-        self.bound
+        self.bound.clone()
     }
 
     /// contains_point reports whether the polygon contains the point.
@@ -685,7 +688,7 @@ impl Polygon {
     /// contains_cell reports whether the polygon contains the given cell.
     pub fn contains_cell(&self, cell: &Cell) -> bool {
         let mut it = self.index.iterator();
-        let relation = it.locate_cell_id(cell.id());
+        let relation = it.locate_cell_id(cell.id);
 
         // If "cell" is disjoint from all index cells, it is not contained.
         // Similarly, if "cell" is subdivided into one or more index cells then it
@@ -709,7 +712,7 @@ impl Polygon {
     /// intersects_cell reports whether the polygon intersects the given cell.
     pub fn intersects_cell(&self, cell: &Cell) -> bool {
         let mut it = self.index.iterator();
-        let relation = it.locate_cell_id(cell.id());
+        let relation = it.locate_cell_id(cell.id);
 
         // If cell does not overlap any index cell, there is no intersection.
         if relation == Disjoint {
@@ -725,7 +728,7 @@ impl Polygon {
         // If cell is an index cell, there is an intersection because index cells
         // are created only if they have at least one edge or they are entirely
         // contained by the loop.
-        if it.cell_id() == cell.id() {
+        if it.cell_id() == cell.id {
             return true;
         }
 
@@ -744,7 +747,11 @@ impl Polygon {
     ///
     /// This requires that it.Locate(cell) returned Indexed.
     fn boundary_approx_intersects(&self, it: &mut ShapeIndexIterator, cell: &Cell) -> bool {
-        let a_clipped = it.index_cell().find_by_shape_id(0);
+        let a_clipped = it
+            .index_cell()
+            .expect("Why does an indexed cell not exist? Is the ShapeIndex not initialized")
+            .find_by_shape_id(0)
+            .expect("Somehow there is no shape in this IndexCell!");
 
         // If there are no edges, there is no intersection.
         if a_clipped.edges.is_empty() {
@@ -752,7 +759,7 @@ impl Polygon {
         }
 
         // We can save some work if cell is the index cell itself.
-        if it.cell_id() == cell.id() {
+        if it.cell_id() == cell.id {
             return true;
         }
 
@@ -761,9 +768,13 @@ impl Polygon {
         let bound = cell.bound_uv().expanded_by_margin(max_error);
 
         for e in &a_clipped.edges {
-            let edge = self.index.shape(0).edge(*e);
+            let edge = self
+                .index
+                .shape(0)
+                .expect("no shape in this index cell at id: 0")
+                .edge(*e as i64);
             let uv_coor = clip_to_padded_face(&edge.v0, &edge.v1, cell.face(), max_error);
-            if let Ok((v0, v1)) = uv_coor
+            if let Some((v0, v1)) = uv_coor
                 && edge_intersects_rect(v0, v1, &bound)
             {
                 return true;
@@ -778,7 +789,11 @@ impl Polygon {
     fn iterator_contains_point(&self, it: &ShapeIndexIterator, point: &Point) -> bool {
         // Test containment by drawing a line segment from the cell center to the
         // given point and counting edge crossings.
-        let a_clipped = it.index_cell().find_by_shape_id(0);
+        let a_clipped = it
+            .index_cell()
+            .expect("Why does an indexed cell not exist? Is the ShapeIndex not initialized")
+            .find_by_shape_id(0)
+            .expect("Somehow there is no shape in this IndexCell!");
         let mut inside = a_clipped.contains_center;
 
         if a_clipped.edges.is_empty() {
@@ -789,9 +804,11 @@ impl Polygon {
         let mut crosser = EdgeCrosser::new(&it.center(), point);
         let shape = self.index.shape(0);
 
-        for e in &a_clipped.edges {
-            let edge = shape.edge(*e);
-            inside = inside != crosser.edge_or_vertex_crossing(&edge.v0, &edge.v1);
+        if let Some(shape) = shape {
+            for e in a_clipped.edges.iter() {
+                let edge = shape.edge(*e as i64);
+                inside = inside != crosser.edge_or_vertex_crossing(&edge.v0, &edge.v1);
+            }
         }
 
         inside
@@ -808,11 +825,11 @@ fn compare_loops(a: &Loop, b: &Loop) -> i32 {
         return (na as i32) - (nb as i32);
     }
 
-    let (ai, a_dir) = a.canonical_first_vertex();
-    let (bi, b_dir) = b.canonical_first_vertex();
+    let (mut ai, a_dir) = a.canonical_first_vertex();
+    let (mut bi, b_dir) = b.canonical_first_vertex();
 
     if a_dir != b_dir {
-        return a_dir - b_dir;
+        return a_dir.into() - b_dir.into();
     }
 
     for n in (0..(a.num_vertices() as i32)).rev() {
@@ -820,8 +837,8 @@ fn compare_loops(a: &Loop, b: &Loop) -> i32 {
             Some(cmp) if cmp != 0 => return cmp,
             _ => {}
         }
-        ai += a_dir;
-        bi += b_dir;
+        ai += a_dir.into();
+        bi += b_dir.into();
     }
 
     0

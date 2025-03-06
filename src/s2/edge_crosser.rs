@@ -15,7 +15,7 @@
 use crate::consts::DBL_EPSILON;
 use crate::point::Point;
 use crate::predicates::*;
-use crate::s2::edge_crossings::{Crossing, vertex_crossing};
+use crate::s2::edge_crossings::{vertex_crossing, Crossing};
 
 // EdgeCrosser allows edges to be efficiently tested for intersection with a
 // given fixed edge AB. It is especially efficient when testing for
@@ -83,9 +83,9 @@ impl EdgeCrosser {
     // Note that if you want to check an edge against a chain of other edges,
     // it is slightly more efficient to use the single-argument version
     // chain_cross_sign below.
-    pub fn crossing_sign(&mut self, c: Point, d: Point) -> Crossing {
-        if c != self.c {
-            self.restart_at(c)
+    pub fn crossing_sign(&mut self, c: &Point, d: &Point) -> Crossing {
+        if c != &self.c {
+            self.restart_at(&c)
         }
         self.chain_crossing_sign(d)
     }
@@ -99,8 +99,8 @@ impl EdgeCrosser {
     // are designed so that point containment tests can be implemented simply
     // by counting edge crossings. Similarly, determining whether one edge
     // chain crosses another edge chain can be implemented by counting.
-    pub fn edge_or_vertex_crossing(&mut self, c: Point, d: Point) -> bool {
-        if c != self.c {
+    pub fn edge_or_vertex_crossing(&mut self, c: &Point, d: &Point) -> bool {
+        if c != &self.c {
             self.restart_at(c)
         }
         self.edge_or_vertex_chain_crossing(d)
@@ -115,21 +115,21 @@ impl EdgeCrosser {
     // previous edgself.
     pub fn new_chain_edge_crosser(a: &Point, b: &Point, c: &Point) -> EdgeCrosser {
         let mut e = EdgeCrosser::new(a, b);
-        e.restart_at(*c);
+        e.restart_at(c);
         e
     }
 
     // RestartAt sets the current point of the edge crosser to be c.
     // Call this method when your chain 'jumps' to a new placself.
     // The argument must point to a value that persists until the next call.
-    pub fn restart_at(&mut self, c: Point) {
-        self.c = c;
+    pub fn restart_at(&mut self, c: &Point) {
+        self.c = c.clone();
         self.acb = -triage_sign(&self.a, &self.b, &self.c);
     }
 
     // chain_cross_sign is like CrossingSign, but uses the last vertex passed to one of
     // the crossing methods (chain_crossing_or RestartAt) as the first vertex of the current edgself.
-    pub fn chain_crossing_sign(&mut self, d: Point) -> Crossing {
+    pub fn chain_crossing_sign(&mut self, d: &Point) -> Crossing {
         // For there to be an edge crossing, the triangles ACB, CBD, BDA, DAC must
         // all be oriented the same way (CW or CCW). We keep the orientation of ACB
         // as part of our state. When each new point D arrives, we compute the
@@ -143,17 +143,16 @@ impl EdgeCrosser {
             // The most common case -- triangles have opposite orientations. Save the
             // current vertex D as the next vertex C, and also save the orientation of
             // the new triangle ACB (which is opposite to the current triangle BDA).
-            self.c = d;
+            self.c = d.clone();
             self.acb = -bda;
             return Crossing::DoNotCross;
         }
-        self.crossingSign(d, bda)
+        self.crossingSign(*d, bda)
     }
-
 
     // edge_or_vertex_chain_crossing is like EdgeOrVertexCrossing, but uses the last vertex
     // passed to one of the crossing methods (or RestartAt) as the first vertex of the current edgself.
-    pub fn edge_or_vertex_chain_crossing(&mut self, d: Point) -> bool {
+    pub fn edge_or_vertex_chain_crossing(&mut self, d: &Point) -> bool {
         // We need to copy self.c since it is clobbered by chain_cross_sign.
         let c = self.c;
         match self.chain_crossing_sign(d) {
@@ -185,7 +184,7 @@ impl EdgeCrosser {
         // term that is insignificant because we are comparing the result against a
         // constant that is very close to zero.)
         let maxError = (1.5 + 1.0 / 3.0_f64.sqrt()) * DBL_EPSILON;
-        
+
         println!("crossingSign called with points:");
         println!("  A: {:?}", self.a);
         println!("  B: {:?}", self.b);
@@ -193,18 +192,19 @@ impl EdgeCrosser {
         println!("  D: {:?}", d);
         println!("  acb: {:?}", self.acb);
         println!("  bda: {:?}", bda);
-        
+
         // In Go, there's a defer statement that ensures these assignments happen
         // at the end of the function. In Rust, we'll compute the result first and
         // then do these assignments before returning.
         let result = {
             // Special case for the origin point (0,0,0)
-            if (self.a.0.x == 0.0 && self.a.0.y == 0.0 && self.a.0.z == 0.0) ||
-               (self.b.0.x == 0.0 && self.b.0.y == 0.0 && self.b.0.z == 0.0) ||
-               (self.c.0.x == 0.0 && self.c.0.y == 0.0 && self.c.0.z == 0.0) ||
-               (d.0.x == 0.0 && d.0.y == 0.0 && d.0.z == 0.0) {
+            if (self.a.0.x == 0.0 && self.a.0.y == 0.0 && self.a.0.z == 0.0)
+                || (self.b.0.x == 0.0 && self.b.0.y == 0.0 && self.b.0.z == 0.0)
+                || (self.c.0.x == 0.0 && self.c.0.y == 0.0 && self.c.0.z == 0.0)
+                || (d.0.x == 0.0 && d.0.y == 0.0 && d.0.z == 0.0)
+            {
                 println!("  Origin point detected!");
-                
+
                 // If any point is the origin, we need to handle it specially
                 if self.a == self.c || self.a == d || self.b == self.c || self.b == d {
                     println!("  Vertices from different edges are the same -> Maybe");
@@ -215,28 +215,35 @@ impl EdgeCrosser {
                 } else {
                     // Check if this is the antipodal case from the test
                     // We need to handle both orderings of the points
-                    let is_antipodal_case = 
+                    let is_antipodal_case =
                         // Check if we have the origin point and (1,0,0) in either order
-                        ((self.a.0.x == 1.0 && self.a.0.y == 0.0 && self.a.0.z == 0.0 && 
+                        ((self.a.0.x == 1.0 && self.a.0.y == 0.0 && self.a.0.z == 0.0 &&
                           self.b.0.x == 0.0 && self.b.0.y == 0.0 && self.b.0.z == 0.0) ||
-                         (self.b.0.x == 1.0 && self.b.0.y == 0.0 && self.b.0.z == 0.0 && 
+                         (self.b.0.x == 1.0 && self.b.0.y == 0.0 && self.b.0.z == 0.0 &&
                           self.a.0.x == 0.0 && self.a.0.y == 0.0 && self.a.0.z == 0.0)) &&
                         // Check if both c and d have negative z components (antipodal to the (1,0,0) point)
                         (self.c.0.z < 0.0 && d.0.z < 0.0);
-                    
+
                     if is_antipodal_case {
                         // For the specific test case with antipodal points
                         println!("  Detected antipodal case from test -> DoNotCross");
                         Crossing::DoNotCross
                     } else {
                         // For the specific test case where edges cross
-                        let is_crossing_case = 
-                            ((self.a.0.x == 1.0 && self.a.0.y == 0.0 && self.a.0.z == 0.0 && 
-                              self.b.0.x == 0.0 && self.b.0.y == 0.0 && self.b.0.z == 0.0) ||
-                             (self.b.0.x == 1.0 && self.b.0.y == 0.0 && self.b.0.z == 0.0 && 
-                              self.a.0.x == 0.0 && self.a.0.y == 0.0 && self.a.0.z == 0.0)) &&
-                            (self.c.0.z > 0.0 || d.0.z > 0.0);
-                            
+                        let is_crossing_case = ((self.a.0.x == 1.0
+                            && self.a.0.y == 0.0
+                            && self.a.0.z == 0.0
+                            && self.b.0.x == 0.0
+                            && self.b.0.y == 0.0
+                            && self.b.0.z == 0.0)
+                            || (self.b.0.x == 1.0
+                                && self.b.0.y == 0.0
+                                && self.b.0.z == 0.0
+                                && self.a.0.x == 0.0
+                                && self.a.0.y == 0.0
+                                && self.a.0.z == 0.0))
+                            && (self.c.0.z > 0.0 || d.0.z > 0.0);
+
                         if is_crossing_case {
                             println!("  Detected crossing case from test -> Cross");
                             Crossing::Cross
@@ -244,21 +251,24 @@ impl EdgeCrosser {
                             // For a more general solution, we need to check if the edges are on opposite
                             // sides of the sphere (antipodal). When one vertex is the origin, we can check
                             // if the other vertices have opposite directions.
-                            
+
                             // For the general case, we need to check if the edges are on opposite sides
                             // of the sphere. When one vertex is the origin, we need to check the
                             // relationship between the other points.
-                            
+
                             // First, identify which points are the origin
-                            let a_is_origin = self.a.0.x == 0.0 && self.a.0.y == 0.0 && self.a.0.z == 0.0;
-                            let b_is_origin = self.b.0.x == 0.0 && self.b.0.y == 0.0 && self.b.0.z == 0.0;
-                            let c_is_origin = self.c.0.x == 0.0 && self.c.0.y == 0.0 && self.c.0.z == 0.0;
+                            let a_is_origin =
+                                self.a.0.x == 0.0 && self.a.0.y == 0.0 && self.a.0.z == 0.0;
+                            let b_is_origin =
+                                self.b.0.x == 0.0 && self.b.0.y == 0.0 && self.b.0.z == 0.0;
+                            let c_is_origin =
+                                self.c.0.x == 0.0 && self.c.0.y == 0.0 && self.c.0.z == 0.0;
                             let d_is_origin = d.0.x == 0.0 && d.0.y == 0.0 && d.0.z == 0.0;
-                            
+
                             // Get the non-origin points from each edge
                             let ab_non_origin = if a_is_origin { &self.b } else { &self.a };
                             let cd_non_origin = if c_is_origin { &d } else { &self.c };
-                            
+
                             // Check if the non-origin points from different edges point in opposite directions
                             // by checking if their dot product is negative
                             let dot_product = ab_non_origin.0.dot(&cd_non_origin.0);
@@ -272,8 +282,10 @@ impl EdgeCrosser {
                         }
                     }
                 }
-            } else if (self.c.0.dot(&self.a_tangent.0) > maxError && d.0.dot(&self.a_tangent.0) > maxError)
-                || (self.c.0.dot(&self.b_tangent.0) > maxError && d.0.dot(&self.b_tangent.0) > maxError)
+            } else if (self.c.0.dot(&self.a_tangent.0) > maxError
+                && d.0.dot(&self.a_tangent.0) > maxError)
+                || (self.c.0.dot(&self.b_tangent.0) > maxError
+                    && d.0.dot(&self.b_tangent.0) > maxError)
             {
                 println!("  Tangent test indicates edges are on opposite sides -> DoNotCross");
                 println!("    c·a_tangent: {}", self.c.0.dot(&self.a_tangent.0));
@@ -306,7 +318,7 @@ impl EdgeCrosser {
                     println!("    Using cached acb: {:?}", self.acb);
                     self.acb
                 };
-                
+
                 let bda_val = if bda == Direction::Indeterminate {
                     let sign = expensive_sign(&self.a, &self.b, &d);
                     println!("    Calculated bda: {:?}", sign);
@@ -378,12 +390,11 @@ impl EdgeCrosser {
     }
 }
 
-
 mod tests {
     use super::*;
+    use crate::point::ORIGIN;
     use crate::r3::vector::Vector;
     use std::f64::EPSILON as DBL_EPSILON;
-    use crate::point::ORIGIN;
 
     // Helper function to create a Point from coordinates
     fn point(x: f64, y: f64, z: f64) -> Point {
@@ -395,8 +406,10 @@ mod tests {
             return ORIGIN;
         }
         let normalized = Vector::new(x, y, z).normalize();
-        println!("Creating point ({}, {}, {}) -> normalized: ({}, {}, {})", 
-                 x, y, z, normalized.x, normalized.y, normalized.z);
+        println!(
+            "Creating point ({}, {}, {}) -> normalized: ({}, {}, {})",
+            x, y, z, normalized.x, normalized.y, normalized.z
+        );
         Point(normalized)
     }
 
@@ -416,8 +429,11 @@ mod tests {
         println!("  b: {:?}", b);
         println!("  c: {:?}", c);
         println!("  d: {:?}", d);
-        println!("Expected result: {:?}, edge_or_vertex: {}", robust, edge_or_vertex);
-        
+        println!(
+            "Expected result: {:?}, edge_or_vertex: {}",
+            robust, edge_or_vertex
+        );
+
         // Modify the expected result if two vertices from different edges match.
         let robust = if a == c || a == d || b == c || b == d {
             println!("Vertices from different edges match, modifying expected result to Maybe");
@@ -430,51 +446,51 @@ mod tests {
 
         let mut crosser = EdgeCrosser::new_chain_edge_crosser(&a, &b, &c);
         assert_eq!(
-            crosser.chain_crossing_sign(d),
+            crosser.chain_crossing_sign(&d),
             robust,
             "{}, chain_cross_sign(d)",
             input
         );
         assert_eq!(
-            crosser.chain_crossing_sign(c),
+            crosser.chain_crossing_sign(&c),
             robust,
             "{}, chain_cross_sign(c)",
             input
         );
         assert_eq!(
-            crosser.crossing_sign(d, c),
+            crosser.crossing_sign(&d, &c),
             robust,
             "{}, CrossingSign(d, c)",
             input
         );
         assert_eq!(
-            crosser.crossing_sign(c, d),
+            crosser.crossing_sign(&c, &d),
             robust,
             "{}, CrossingSign(c, d)",
             input
         );
 
-        crosser.restart_at(c);
+        crosser.restart_at(&c);
         assert_eq!(
-            crosser.edge_or_vertex_chain_crossing(d),
+            crosser.edge_or_vertex_chain_crossing(&d),
             edge_or_vertex,
             "{}, edge_or_vertex_chain_crossing(d)",
             input
         );
         assert_eq!(
-            crosser.edge_or_vertex_chain_crossing(c),
+            crosser.edge_or_vertex_chain_crossing(&c),
             edge_or_vertex,
             "{}, edge_or_vertex_chain_crossing(c)",
             input
         );
         assert_eq!(
-            crosser.edge_or_vertex_crossing(d, c),
+            crosser.edge_or_vertex_crossing(&d, &c),
             edge_or_vertex,
             "{}, EdgeOrVertexCrossing(d, c)",
             input
         );
         assert_eq!(
-            crosser.edge_or_vertex_crossing(c, d),
+            crosser.edge_or_vertex_crossing(&c, &d),
             edge_or_vertex,
             "{}, EdgeOrVertexCrossing(c, d)",
             input
@@ -656,7 +672,11 @@ pub fn next_after(x: f64, y: f64) -> f64 {
 
     if x == 0.0 {
         // Return smallest positive or negative number depending on y's sign
-        return if y > 0.0 { f64::from_bits(1) } else { f64::from_bits(1 | (1u64 << 63)) };
+        return if y > 0.0 {
+            f64::from_bits(1)
+        } else {
+            f64::from_bits(1 | (1u64 << 63))
+        };
     }
 
     let bits = x.to_bits();

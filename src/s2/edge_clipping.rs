@@ -81,8 +81,8 @@ pub const INTERSECT_RECT_ERROR_UV_DIST: f64 = 3.0 * std::f64::consts::SQRT_2 * D
 /// cube face rectangle and are within faceClipErrorUVDist of the line AB, but
 /// the results may differ from those produced by FaceSegments.
 pub fn clip_to_face(
-    a: Point,
-    b: Point,
+    a: &Point,
+    b: &Point,
     face: u8,
 ) -> Option<(r2::point::Point, r2::point::Point)> {
     clip_to_padded_face(a, b, face, 0.0)
@@ -93,8 +93,8 @@ pub fn clip_to_face(
 /// in (u,v) space, this method clips to [-R,R]x[-R,R] where R=(1+padding).
 /// Padding must be non-negative.
 pub fn clip_to_padded_face(
-    a: Point,
-    b: Point,
+    a: &Point,
+    b: &Point,
     f: u8,
     padding: f64,
 ) -> Option<(r2::point::Point, r2::point::Point)> {

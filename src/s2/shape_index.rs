@@ -512,7 +512,7 @@ impl Tracker {
     // This requires shape to have an interior.
     pub fn test_edge(&mut self, shape_id: i32, edge: Edge) {
         if let Some(ref mut crosser) = self.crosser {
-            if crosser.edge_or_vertex_crossing(edge.v0, edge.v1) {
+            if crosser.edge_or_vertex_crossing(&edge.v0, &edge.v1) {
                 self.toggle_shape(shape_id);
             }
         }
@@ -1008,8 +1008,8 @@ impl ShapeIndex {
         // Otherwise, we simply clip the edge to all six faces.
         for face in 0..6 {
             if let Some((a_clip, b_clip)) = crate::s2::edge_clipping::clip_to_padded_face(
-                fe.edge.v0,
-                fe.edge.v1,
+                &fe.edge.v0,
+                &fe.edge.v1,
                 face,
                 CELL_PADDING,
             ) {
@@ -1651,8 +1651,8 @@ impl ShapeIndex {
                     }
 
                     let clip_result = crate::s2::edge_clipping::clip_to_padded_face(
-                        edge.edge.v0,
-                        edge.edge.v1,
+                        &edge.edge.v0,
+                        &edge.edge.v1,
                         p.id.face(),
                         CELL_PADDING,
                     );
