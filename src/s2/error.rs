@@ -1,5 +1,5 @@
-use std::fmt;
 use std::error::Error;
+use std::fmt;
 
 /// S2Error represents errors that can occur in S2 operations
 #[derive(Debug)]
@@ -22,6 +22,12 @@ impl fmt::Display for S2Error {
             S2Error::EncodingError(msg) => write!(f, "Encoding error: {}", msg),
             S2Error::Other(msg) => write!(f, "{}", msg),
         }
+    }
+}
+
+impl From<S2Error> for S2Result<()> {
+    fn from(e: S2Error) -> Self {
+        Err(e)
     }
 }
 

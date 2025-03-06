@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::consts::{f64_eq, DBL_EPSILON};
+use crate::error::S2Error;
 use crate::point::{get_frame, ordered_ccw, regular_points_for_frame};
 use crate::r1::interval::Interval as R1Interval;
 use crate::r3::vector::Vector as R3Vector;
@@ -42,7 +43,6 @@ use std::f64::consts::PI;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::{Add, Div, Mul, Sub};
-use crate::error::S2Error;
 
 pub enum OriginBound {
     OriginInside,
@@ -1253,21 +1253,16 @@ impl Loop {
             if !v.0.is_unit() {
                 return S2Error::Other(format!("vertex {} is not unit length", i)).into();
             }
-
-        }
-
-        for i, v := range self.vertices {
-            if !v.IsUnit() {
-                return fmt.Errorf("vertex %d is not unit length", i)
-            }
         }
 
         // Loops must have at least 3 vertices (except for empty and full).
-        if len(self.vertices) < 3 {
-            if self.isEmptyOrFull() {
-                return nil // Skip remaining tests.
+        if self.vertices.len() < 3 {
+            if self.is_empty_or_full() {
+                return Ok(()); // Skip remaining tests.
             }
-            return fmt.Errorf("non-empty, non-full loops must have at least 3 vertices")
+            return Err(S2Error::Other(
+                "non-empty, non-full loops must have at least 3 vertices".to_string(),
+            ));
         }
 
         // Loops are not allowed to have any duplicate vertices or edge crossings.
@@ -1276,21 +1271,27 @@ impl Loop {
         // intersections between non-adjacent edges (including at vertices). The
         // second check needs the ShapeIndex, so it does not fall within the scope
         // of this method.
-        for i, v := range self.vertices {
-            if v == self.Vertex(i+1) {
-                return fmt.Errorf("edge %d is degenerate (duplicate vertex)", i)
+        for i in 0..self.vertices.len() {
+            if self.vertex(i) == self.vertex(i + 1) {
+                return Err(S2Error::Other(format!(
+                    "edge {} is degenerate (duplicate vertex)",
+                    i
+                )));
             }
 
             // Antipodal vertices are not allowed.
-            if other := (Point{self.Vertex(i + 1).Mul(-1)}); v == other {
-                return fmt.Errorf("vertices %d and %d are antipodal", i,
-                (i+1)%len(l.vertices))
+            let other = Point(self.vertex(i + 1).0.mul(-1));
+            if self.vertex(i) == other {
+                return Err(S2Error::Other(format!(
+                    "vertices {} and {} are antipodal",
+                    i,
+                    (i + 1) % self.vertices.len()
+                )));
             }
         }
 
-        return nil
+        Ok(())
     }
-
     /// encode encodes the loop to a byte vector.
     ///
     /// The encoding consists of:
