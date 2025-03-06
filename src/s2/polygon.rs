@@ -14,8 +14,8 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-
-use crate::r#loop::Loop;
+use super::region::Region;
+use crate::r#loop::{BoundaryCondition, Loop};
 use crate::r3::vector::Vector as R3Vector;
 use crate::s2::cap::Cap;
 use crate::s2::cell::Cell;
@@ -24,6 +24,7 @@ use crate::s2::edge_clipping::{
     clip_to_padded_face, edge_intersects_rect, INTERSECT_RECT_ERROR_UV_DIST,
 };
 use crate::s2::edge_crosser::EdgeCrosser;
+use crate::s2::edge_crossings::Crossing;
 use crate::s2::point::Point;
 use crate::s2::rect::Rect;
 use crate::s2::rect_bounder::expand_for_subregions;
@@ -32,11 +33,12 @@ use crate::s2::shape_index::{ShapeIndex, ShapeIndexIterator};
 use crate::shape::ShapeType;
 use crate::shape_index::CellRelation::{Disjoint, Indexed, Subdivided};
 use crate::shape_index::{CellRelation, FACE_CLIP_ERROR_UV_COORD};
+use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-
-use super::region::Region;
+use std::ops::AddAssign;
 
 /// Polygon represents a sequence of zero or more loops; recall that the
 /// interior of a loop is defined to be its left-hand side (see Loop).
@@ -223,67 +225,97 @@ impl Polygon {
             return;
         }
 
+        // Take ownership of loops to avoid borrow issues
+        let loops = std::mem::take(&mut self.loops);
+
         // Setup loop map for ordering
         let mut lm = LoopMap::new();
 
+        // Create a root entry in the map to represent "no parent"
         // Insert loops into loop map for ordering
-        // Note: We need to manually handle the memory management since we're using raw pointers
-        for l in &self.loops {
-            Self::insert_loop(&mut lm, l, *std::ptr::null());
-        }
-
-        // The loops have all been added to the loopMap for ordering
-        // Clear the loops slice because we add all the loops in-order in init_loops.
-        self.loops.clear();
+        Self::build_loop_hierarchy(&mut lm, &loops);
 
         // Reorder the loops in depth-first traversal order
         self.init_loops(&lm);
         self.init_loop_properties();
     }
 
-    /// insert_loop adds the given loop to the loop map under the specified parent.
-    /// All children of the new entry are checked to see if they need to move up to
-    /// a different level.
-    fn insert_loop<'a>(lm: &mut LoopMap<'a>, new_loop: &'a Loop, parent: &'a Loop) {
-        // Find appropriate parent
-        let mut current_parent = parent;
-        'outer: loop {
-            let children = lm.get(current_parent).cloned().unwrap_or_default();
-            for child in &children {
-                if child.contains_nested(new_loop) {
-                    current_parent = child;
-                    continue 'outer;
+    /// build_loop_hierarchy constructs the parent-child relationship hierarchy
+    /// for all loops in the polygon.
+    fn build_loop_hierarchy<'a>(lm: &mut LoopMap<'a>, loops: &'a [Loop]) {
+        // First pass: add all loops to the map with empty children lists
+        for l in loops {
+            lm.insert(l, Vec::new());
+        }
+
+        // Second pass: for each loop, find its parent and update the hierarchy
+        for new_loop in loops {
+            Self::find_parent_and_update(lm, new_loop);
+        }
+    }
+
+    /// find_parent_and_update finds the appropriate parent for a loop and updates
+    /// the hierarchy accordingly.
+    fn find_parent_and_update<'a>(lm: &mut LoopMap<'a>, new_loop: &'a Loop) {
+        // Find the innermost loop that contains new_loop
+        let mut parent = None;
+
+        // First, check which loops could contain this one
+        for &potential_parent in lm.keys() {
+            // Skip the loop itself
+            if std::ptr::eq(potential_parent, new_loop) {
+                continue;
+            }
+
+            // If this loop contains the new loop and is nested deeper than our current parent
+            if potential_parent.contains_nested(new_loop) {
+                match parent {
+                    None => parent = Some(potential_parent),
+                    Some(current_parent) => {
+                        // If this potential parent is contained by our current parent,
+                        // it's a better (more specific) parent
+                        if current_parent.contains_nested(potential_parent) {
+                            parent = Some(potential_parent);
+                        }
+                    }
                 }
             }
-            break;
         }
 
-        // Now we have found a parent for this loop, it may be that some of the
-        // children of the parent of this loop may now be children of the new loop.
-        let mut new_children = lm.get(new_loop).cloned().unwrap_or_default();
+        // Get the parent loop or use None if there's no parent
+        if let Some(parent_loop) = parent {
+            // Check if any existing children of the parent should now be children of new_loop
+            let mut current_children = lm.get(parent_loop).cloned().unwrap_or_default();
+            let mut new_children = lm.get(new_loop).cloned().unwrap_or_default();
 
-        // Get current children of parent
-        let mut children = lm.get(current_parent).cloned().unwrap_or_default();
+            // Move appropriate children
+            let mut i = 0;
+            while i < current_children.len() {
+                let child = current_children[i];
+                // Skip the new loop itself
+                if std::ptr::eq(child, new_loop) {
+                    i += 1;
+                    continue;
+                }
 
-        // Check if any children should move to be under the new loop
-        let mut i = 0;
-        while i < children.len() {
-            let child = children[i];
-            if new_loop.contains_nested(child) {
-                new_children.push(child);
-                children.remove(i);
-            } else {
-                i += 1;
+                if new_loop.contains_nested(child) {
+                    new_children.push(child);
+                    current_children.remove(i);
+                } else {
+                    i += 1;
+                }
             }
-        }
 
-        // Update the loop map
-        lm.insert(new_loop, new_children);
-        lm.insert(current_parent, {
-            let mut temp = children;
-            temp.push(new_loop);
-            temp
-        });
+            // Add the new loop as a child of the parent
+            current_children.push(new_loop);
+
+            // Update the loop map
+            lm.insert(parent_loop, current_children);
+            lm.insert(new_loop, new_children);
+        } else {
+            // This is a top-level loop with no parent
+            // We don't need to modify its children, they were already set in the initial pass
+        }
     }
 
     /// init_loops walks the mapping of loops to all of their children, and adds them in
@@ -829,16 +861,29 @@ fn compare_loops(a: &Loop, b: &Loop) -> i32 {
     let (mut bi, b_dir) = b.canonical_first_vertex();
 
     if a_dir != b_dir {
-        return a_dir.into() - b_dir.into();
+        let a_dir_as_int = a_dir as i32;
+        let b_dir_as_int = b_dir as i32;
+
+        return a_dir_as_int - b_dir_as_int;
     }
 
     for n in (0..(a.num_vertices() as i32)).rev() {
-        match a.vertex(ai + a_dir).cmp(&b.vertex(bi + b_dir).0) {
-            Some(cmp) if cmp != 0 => return cmp,
-            _ => {}
+        let a_temp = a.vertex(ai + a_dir).0;
+        let b_temp = b.vertex(bi + b_dir).0;
+
+        let cmp = a_temp.cmp(&b_temp);
+        if cmp != Ordering::Equal {
+            match cmp {
+                Ordering::Greater => return 1,
+                Ordering::Less => return -1,
+                _ => {
+                    panic!("HOW IS THIS OPSSILBINESRTIENTSROIE! Equal!?!?")
+                }
+            }
         }
-        ai += a_dir.into();
-        bi += b_dir.into();
+
+        ai += a_dir;
+        bi += b_dir;
     }
 
     0
@@ -876,10 +921,9 @@ impl Shape for Polygon {
 
         Edge {
             v0: self.loops[i]
-                .oriented_vertex((e - self.cumulative_edges.get(i).cloned().unwrap_or(0)) as i32),
-            v1: self.loops[i].oriented_vertex(
-                (e - self.cumulative_edges.get(i).cloned().unwrap_or(0) + 1) as i32,
-            ),
+                .oriented_vertex((e - self.cumulative_edges.get(i).cloned().unwrap_or(0))),
+            v1: self.loops[i]
+                .oriented_vertex((e - self.cumulative_edges.get(i).cloned().unwrap_or(0) + 1)),
         }
     }
 
@@ -933,8 +977,8 @@ impl Shape for Polygon {
         let i = i as usize;
         let j = j as usize;
         Edge {
-            v0: self.loops[i].oriented_vertex(j as i32),
-            v1: self.loops[i].oriented_vertex((j + 1) as i32),
+            v0: self.loops[i].oriented_vertex(j),
+            v1: self.loops[i].oriented_vertex((j + 1)),
         }
     }
 
@@ -998,7 +1042,11 @@ impl Polygon {
     /// more complicated shapes (by splitting them into disjoint regions and
     /// adding their centroids).
     pub fn centroid(&self) -> Point {
-        let mut u = R3Vector::zero();
+        let mut u = R3Vector {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        };
         for loop_ref in &self.loops {
             let v = loop_ref.centroid().0;
             if loop_ref.sign() < 0 {
@@ -1066,7 +1114,7 @@ impl Polygon {
 
     /// compare_boundary returns +1 if this polygon contains the boundary of o, -1 if A
     /// excludes the boundary of o, and 0 if the boundaries of A and o cross.
-    fn compare_boundary(&self, o: &Loop) -> i8 {
+    fn compare_boundary(&self, o: &Loop) -> BoundaryCondition {
         let mut result = -1;
         for i in 0..self.loops.len() {
             if result == 0 {
@@ -1074,9 +1122,13 @@ impl Polygon {
             }
             // If o crosses any loop of A, the result is 0. Otherwise the result
             // changes sign each time o is contained by a loop of A.
-            result *= -self.loops[i].compare_boundary(o);
+
+            let boundary_condition_as_int = -self.loops[i].compare_boundary(o) as i32;
+
+            result *= boundary_condition_as_int;
         }
-        result
+        // TODO: Make this Result return an error.
+        result.try_into().unwrap()
     }
 
     /// excludes_boundary reports whether this polygon excludes the entire boundary of o.

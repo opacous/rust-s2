@@ -38,11 +38,12 @@ use crate::shape_index::CellRelation::{Disjoint, Indexed, Subdivided};
 use crate::shape_index::FACE_CLIP_ERROR_UV_COORD;
 use cgmath::Matrix3;
 use std::cmp::Ordering;
+use std::convert::TryFrom;
 use std::f64;
 use std::f64::consts::PI;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
-use std::ops::{Add, Div, Mul, Sub};
+use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub};
 
 pub enum OriginBound {
     OriginInside,
@@ -53,7 +54,7 @@ pub enum OriginBound {
 pub enum VertexTraversalDirection {
     Forward, // vertices are traversed starting from firstIdx and incrementing the index. This is the "forward" direction. The sequence will be firstIdx, firstIdx + 1, firstIdx + 2,
     Backward, // vertices are traversed starting from firstIdx + n (where n is the loop length) and decrementing the index. This is the "backward" direction. The sequence will be firstIdx + n, firstIdx + n - 1, firstIdx + n - 2
-}i
+}
 
 impl Into<i32> for VertexTraversalDirection {
     fn into(self) -> i32 {
@@ -69,6 +70,15 @@ impl Into<f64> for VertexTraversalDirection {
         match self {
             VertexTraversalDirection::Forward => 1.,
             VertexTraversalDirection::Backward => -1.,
+        }
+    }
+}
+
+impl AddAssign<VertexTraversalDirection> for usize {
+    fn add_assign(&mut self, rhs: VertexTraversalDirection) {
+        match rhs {
+            VertexTraversalDirection::Forward => *self += 1,
+            VertexTraversalDirection::Backward => *self -= 1,
         }
     }
 }
@@ -448,8 +458,8 @@ impl Loop {
                     crosser.restart_at(&self.vertex(ai as usize));
                 }
                 ai_prev = ai;
-                inside =
-                    inside != crosser.edge_or_vertex_chain_crossing(&self.vertex((ai + 1) as usize));
+                inside = inside
+                    != crosser.edge_or_vertex_chain_crossing(&self.vertex((ai + 1) as usize));
             }
         }
         inside
@@ -730,6 +740,23 @@ impl Loop {
 
         None
     }
+
+    /// Returns the vertex in reverse order if the loop represents a polygon
+    /// hole. For example, arguments 0, 1, 2 are mapped to vertices n-1, n-2, n-3, where
+    /// n == len(vertices). This ensures that the interior of the polygon is always to
+    /// the left of the vertex chain.
+    ///
+    /// This requires: 0 <= i < 2 * len(vertices)
+    pub fn oriented_vertex(&self, i: usize) -> Point {
+        let mut j = i;
+        if j >= self.vertices.len() {
+            j = j - self.vertices.len();
+        }
+        if self.is_hole() {
+            j = self.vertices.len() - 1 - j;
+        }
+        self.vertex(j)
+    }
 }
 
 /// ContainsRelation is a helper for the Contains() method.
@@ -874,10 +901,10 @@ enum CrossingTarget {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-enum BoundaryCondition {
-    LoopContainsOtherLoop, // 1
-    LoopCrossesOtherLoop,  // 0
-    LoopExcludesOtherLoop, //-1
+pub enum BoundaryCondition {
+    ContainsOther, // 1
+    CrossesOther,  // 0
+    ExcludesOther, //-1
 }
 
 impl PartialEq<i32> for BoundaryCondition {
@@ -889,12 +916,40 @@ impl PartialEq<i32> for BoundaryCondition {
 impl PartialOrd<i32> for BoundaryCondition {
     fn partial_cmp(&self, other: &i32) -> Option<Ordering> {
         match self {
-            BoundaryCondition::LoopContainsOtherLoop => Option::from(1.cmp(other)),
-            BoundaryCondition::LoopCrossesOtherLoop => Option::from(0.cmp(other)),
-            BoundaryCondition::LoopExcludesOtherLoop => Option::from((-1i32).cmp(other)),
+            BoundaryCondition::ContainsOther => Option::from(1.cmp(other)),
+            BoundaryCondition::CrossesOther => Option::from(0.cmp(other)),
+            BoundaryCondition::ExcludesOther => Option::from((-1i32).cmp(other)),
         }
     }
 }
+
+impl Neg for BoundaryCondition {
+    type Output = Self;
+    fn neg(self) -> Self {
+        match self {
+            BoundaryCondition::ContainsOther => BoundaryCondition::ExcludesOther,
+            BoundaryCondition::CrossesOther => BoundaryCondition::CrossesOther,
+            BoundaryCondition::ExcludesOther => BoundaryCondition::ContainsOther,
+        }
+    }
+}
+
+impl TryFrom<i32> for BoundaryCondition {
+    type Error = S2Error;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(BoundaryCondition::ContainsOther),
+            0 => Ok(BoundaryCondition::CrossesOther),
+            -1 => Ok(BoundaryCondition::ExcludesOther),
+            _ => Err(S2Error::Other(format!(
+                "BoundaryCondition Error: Invalid value conversion from int:[{}]",
+                value
+            ))),
+        }
+    }
+}
+
 /// has_crossing_relation is a helper for Contains, Intersects, and CompareBoundary
 /// It checks all edges of loop A for intersection against all edges of loop B and
 /// reports if there are any that satisfy the given relation. If there is any shared
@@ -1066,37 +1121,37 @@ impl Loop {
     pub fn compare_boundary(&self, b: &Loop) -> BoundaryCondition {
         // The bounds must intersect for containment or crossing.
         if !self.bound.intersects(&b.bound) {
-            return BoundaryCondition::LoopExcludesOtherLoop;
+            return BoundaryCondition::ExcludesOther;
         }
 
         // Full loops are handled as though the loop surrounded the entire sphere.
         if self.is_full() {
-            return BoundaryCondition::LoopContainsOtherLoop;
+            return BoundaryCondition::ContainsOther;
         }
         if b.is_full() {
-            return BoundaryCondition::LoopExcludesOtherLoop;
+            return BoundaryCondition::ExcludesOther;
         }
 
         // Check whether there are any edge crossings, and also check the loop
         // relationship at any shared vertices.
         let mut relation = CompareBoundaryRelation::new(b.is_hole()); //(o.IsHole())
         if has_crossing_relation(self, b, &mut relation) {
-            return BoundaryCondition::LoopCrossesOtherLoop;
+            return BoundaryCondition::CrossesOther;
         }
         if relation.found_shared_vertex {
             if relation.contains_edge {
-                return BoundaryCondition::LoopContainsOtherLoop;
+                return BoundaryCondition::ContainsOther;
             }
-            return BoundaryCondition::LoopExcludesOtherLoop;
+            return BoundaryCondition::ExcludesOther;
         }
 
         // There are no edge intersections or shared vertices, so we can check
         // whether A contains an arbitrary vertex of B.
         if self.contains_point(b.vertex(0)) {
-            return BoundaryCondition::LoopContainsOtherLoop;
+            return BoundaryCondition::ContainsOther;
         }
 
-        BoundaryCondition::LoopExcludesOtherLoop
+        BoundaryCondition::ExcludesOther
     }
 
     /// Returns a first vertex index and a direction (either +1 or -1) such that the

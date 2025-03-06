@@ -79,7 +79,7 @@ impl<'a> CrossingEdgeQuery<'a> {
 
         for i in 0..n {
             let edge = shape.edge(edges[i] as i64);
-            let sign = crosser.crossing_sign(edge.v0, edge.v1);
+            let sign = crosser.crossing_sign(&edge.v0, &edge.v1);
 
             if (cross_type == CrossingType::All
                 && (sign == Crossing::Maybe || sign == Crossing::Cross))
@@ -119,7 +119,7 @@ impl<'a> CrossingEdgeQuery<'a> {
 
             for i in 0..n {
                 let edge = shape.edge(edges[i] as i64);
-                let sign = crosser.crossing_sign(edge.v0, edge.v1);
+                let sign = crosser.crossing_sign(&edge.v0, &edge.v1);
 
                 if (cross_type == CrossingType::All
                     && (sign == Crossing::Maybe || sign == Crossing::Cross))
