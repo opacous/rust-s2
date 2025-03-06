@@ -37,7 +37,7 @@ use crate::s2::edge_crossings::{vertex_crossing, Crossing};
 pub struct EdgeCrosser {
     a: Point,
     b: Point,
-    aXb: Point,
+    a_xb: Point,
 
     // To reduce the number of calls to expensiveSign, we compute an
     // outward-facing tangent at A and B if necessary. If the plane
@@ -61,7 +61,7 @@ impl EdgeCrosser {
         EdgeCrosser {
             a: *a,
             b: *b,
-            aXb: Point(norm),
+            a_xb: Point(norm),
             a_tangent,
             b_tangent,
             c: Default::default(),
@@ -147,7 +147,7 @@ impl EdgeCrosser {
             self.acb = -bda;
             return Crossing::DoNotCross;
         }
-        self.crossingSign(*d, bda)
+        self.inner_crossing_sign(d, bda)
     }
 
     // edge_or_vertex_chain_crossing is like EdgeOrVertexCrossing, but uses the last vertex
@@ -163,7 +163,7 @@ impl EdgeCrosser {
     }
 
     // crossingSign handle the slow path of CrossingSign.
-    pub fn crossingSign(&mut self, d: Point, mut bda: Direction) -> Crossing {
+    pub fn inner_crossing_sign(&mut self, d: &Point, mut bda: Direction) -> Crossing {
         // Compute the actual result, and then save the current vertex D as the next
         // vertex C, and save the orientation of the next triangle ACB (which is
         // opposite to the current triangle BDA).
@@ -183,7 +183,7 @@ impl EdgeCrosser {
         // dotProd below is dblEpsilon. (There is also a small relative error
         // term that is insignificant because we are comparing the result against a
         // constant that is very close to zero.)
-        let maxError = (1.5 + 1.0 / 3.0_f64.sqrt()) * DBL_EPSILON;
+        let max_error = (1.5 + 1.0 / 3.0_f64.sqrt()) * DBL_EPSILON;
 
         println!("crossingSign called with points:");
         println!("  A: {:?}", self.a);
@@ -259,11 +259,11 @@ impl EdgeCrosser {
                             // First, identify which points are the origin
                             let a_is_origin =
                                 self.a.0.x == 0.0 && self.a.0.y == 0.0 && self.a.0.z == 0.0;
-                            let b_is_origin =
+                            let _b_is_origin =
                                 self.b.0.x == 0.0 && self.b.0.y == 0.0 && self.b.0.z == 0.0;
                             let c_is_origin =
                                 self.c.0.x == 0.0 && self.c.0.y == 0.0 && self.c.0.z == 0.0;
-                            let d_is_origin = d.0.x == 0.0 && d.0.y == 0.0 && d.0.z == 0.0;
+                            let _d_is_origin = d.0.x == 0.0 && d.0.y == 0.0 && d.0.z == 0.0;
 
                             // Get the non-origin points from each edge
                             let ab_non_origin = if a_is_origin { &self.b } else { &self.a };
@@ -282,17 +282,17 @@ impl EdgeCrosser {
                         }
                     }
                 }
-            } else if (self.c.0.dot(&self.a_tangent.0) > maxError
-                && d.0.dot(&self.a_tangent.0) > maxError)
-                || (self.c.0.dot(&self.b_tangent.0) > maxError
-                    && d.0.dot(&self.b_tangent.0) > maxError)
+            } else if (self.c.0.dot(&self.a_tangent.0) > max_error
+                && d.0.dot(&self.a_tangent.0) > max_error)
+                || (self.c.0.dot(&self.b_tangent.0) > max_error
+                    && d.0.dot(&self.b_tangent.0) > max_error)
             {
                 println!("  Tangent test indicates edges are on opposite sides -> DoNotCross");
                 println!("    c·a_tangent: {}", self.c.0.dot(&self.a_tangent.0));
                 println!("    d·a_tangent: {}", d.0.dot(&self.a_tangent.0));
                 println!("    c·b_tangent: {}", self.c.0.dot(&self.b_tangent.0));
                 println!("    d·b_tangent: {}", d.0.dot(&self.b_tangent.0));
-                println!("    maxError: {}", maxError);
+                println!("    maxError: {}", max_error);
                 Crossing::DoNotCross
             } else if self.a == self.c || self.a == d || self.b == self.c || self.b == d {
                 // Otherwise, eliminate the cases where two vertices from different edges are
@@ -383,7 +383,7 @@ impl EdgeCrosser {
         };
 
         // Equivalent to the defer statement in Go
-        self.c = d;
+        self.c = d.clone();
         self.acb = -bda;
 
         result
@@ -394,7 +394,6 @@ mod tests {
     use super::*;
     use crate::point::ORIGIN;
     use crate::r3::vector::Vector;
-    use std::f64::EPSILON as DBL_EPSILON;
 
     // Helper function to create a Point from coordinates
     fn point(x: f64, y: f64, z: f64) -> Point {

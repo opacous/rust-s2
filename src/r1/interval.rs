@@ -15,9 +15,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+use crate::consts::EPSILON;
 use std;
 use std::ops::Range;
-use crate::consts::EPSILON;
 
 /// Interval represents a closed interval on ℝ.
 /// Zero-length intervals (where Lo == Hi) represent single points.
@@ -230,7 +230,10 @@ impl std::cmp::PartialEq<Interval> for Interval {
 
 impl From<Range<f64>> for Interval {
     fn from(r: Range<f64>) -> Self {
-        Interval { lo: r.start, hi: r.end }
+        Interval {
+            lo: r.start,
+            hi: r.end,
+        }
     }
 }
 

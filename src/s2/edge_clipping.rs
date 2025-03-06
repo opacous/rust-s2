@@ -1,32 +1,4 @@
 use crate::consts::DBL_EPSILON;
-#[allow(dead_code)]
-/*
-Copyright 2014 Google Inc. All rights reserved.
-Copyright 2017 Jihyun Yu. All rights reserved.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-// This file contains a collection of methods for:
-//
-//   (1) Robustly clipping geodesic edges to the faces of the S2 biunit cube
-//       (see s2stuv), and
-//
-//   (2) Robustly clipping 2D edges against 2D rectangles.
-//
-// These functions can be used to efficiently find the set of CellIDs that
-// are intersected by a geodesic edge (e.g., see crossing_edge_query).
-use crate::consts::*;
-use crate::error::{S2Error, S2Result};
 use crate::point::Point;
 use crate::r1;
 use crate::r2;
@@ -156,8 +128,10 @@ pub fn clip_to_padded_face(
 
     // As described in clipDestination, if the sum of the scores from clipping the two
     // endpoints is 3 or more, then the segment does not intersect this face
-    let (a_uv, a_score) = clip_destination(b_uvw, a_uvw, scaled_n * -1_f64, b_tan, a_tan, scale_uv);
-    let (b_uv, b_score) = clip_destination(a_uvw, b_uvw, scaled_n * -1_f64, a_tan, b_tan, scale_uv);
+    let (a_uv, _a_score) =
+        clip_destination(b_uvw, a_uvw, scaled_n * -1_f64, b_tan, a_tan, scale_uv);
+    let (b_uv, _b_score) =
+        clip_destination(a_uvw, b_uvw, scaled_n * -1_f64, a_tan, b_tan, scale_uv);
 
     Some((a_uv, b_uv))
 }

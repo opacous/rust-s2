@@ -1,4 +1,3 @@
-use crate::cellid::{CellID, MAX_LEVEL, NUM_FACES, POS_BITS};
 //
 // // random_uniform_int returns a uniformly distributed integer in the range [lo,hi).
 // pub fn random_uniform_int(lo: isize, hi: isize) -> isize {

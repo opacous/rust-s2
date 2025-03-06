@@ -160,12 +160,10 @@ impl PreciseVector {
             } else {
                 r3::vector::Axis::Z
             }
+        } else if a.y > a.z {
+            r3::vector::Axis::Y
         } else {
-            if a.y > a.z {
-                r3::vector::Axis::Y
-            } else {
-                r3::vector::Axis::Z
-            }
+            r3::vector::Axis::Z
         }
     }
 
@@ -178,12 +176,10 @@ impl PreciseVector {
             } else {
                 r3::vector::Axis::Z
             }
+        } else if t.y < t.z {
+            r3::vector::Axis::Y
         } else {
-            if t.y < t.z {
-                r3::vector::Axis::Y
-            } else {
-                r3::vector::Axis::Z
-            }
+            r3::vector::Axis::Z
         }
     }
 }

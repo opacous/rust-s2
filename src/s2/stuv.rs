@@ -246,7 +246,6 @@ mod tests {
     use super::*;
     use crate::r3::vector::Axis;
     use crate::s2::random;
-    use std;
 
     #[test]
     fn st_uv() {

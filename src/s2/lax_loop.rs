@@ -14,8 +14,6 @@
 
 use crate::s2::point::Point;
 use crate::shape::{Chain, ChainPosition, Edge, ReferencePoint, Shape};
-use std::any::Any;
-use crate::s2;
 
 /// LaxLoop represents a closed loop of edges surrounding an interior
 /// region. It is similar to Loop except that this class allows
@@ -74,14 +72,14 @@ impl Shape for LaxLoop {
         std::cmp::min(1, self.vertices.len() as i64)
     }
 
-    fn chain(&self, i: i64) -> Chain {
+    fn chain(&self, _i: i64) -> Chain {
         Chain {
             start: 0,
             length: self.vertices.len() as i64,
         }
     }
 
-    fn chain_edge(&self, chain_id: i64, offset: i64) -> Edge {
+    fn chain_edge(&self, _chain_id: i64, offset: i64) -> Edge {
         let j = offset;
         let k = (j + 1) % self.vertices.len() as i64;
         Edge {
@@ -114,10 +112,10 @@ mod tests {
             Point::from_coords(0.0, 0.0, 1.0),
         ];
         let lax_loop = LaxLoop::from_points(vertices.clone());
-        
+
         assert_eq!(lax_loop.vertices.len(), 3);
         assert_eq!(lax_loop.num_edges(), 3);
-        
+
         for i in 0..3 {
             assert_eq!(lax_loop.vertex(i), vertices[i]);
         }
@@ -131,7 +129,7 @@ mod tests {
             Point::from_coords(0.0, 0.0, 1.0),
         ];
         let lax_loop = LaxLoop::from_points(vertices.clone());
-        
+
         // Test the edges
         for i in 0..3 {
             let edge = lax_loop.edge(i);
@@ -148,13 +146,13 @@ mod tests {
             Point::from_coords(0.0, 0.0, 1.0),
         ];
         let lax_loop = LaxLoop::from_points(vertices);
-        
+
         assert_eq!(lax_loop.num_chains(), 1);
-        
+
         let chain = lax_loop.chain(0);
         assert_eq!(chain.start, 0);
         assert_eq!(chain.length, 3);
-        
+
         // Test chain position
         let pos = lax_loop.chain_position(1);
         assert_eq!(pos.chain_id, 0);
@@ -164,7 +162,7 @@ mod tests {
     #[test]
     fn test_empty_lax_loop() {
         let lax_loop = LaxLoop::from_points(vec![]);
-        
+
         assert_eq!(lax_loop.vertices.len(), 0);
         assert_eq!(lax_loop.num_edges(), 0);
         assert_eq!(lax_loop.num_chains(), 0);

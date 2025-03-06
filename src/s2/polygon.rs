@@ -19,12 +19,10 @@ use crate::r#loop::{BoundaryCondition, Loop};
 use crate::r3::vector::Vector as R3Vector;
 use crate::s2::cap::Cap;
 use crate::s2::cell::Cell;
-use crate::s2::cellid::CellID;
 use crate::s2::edge_clipping::{
     clip_to_padded_face, edge_intersects_rect, INTERSECT_RECT_ERROR_UV_DIST,
 };
 use crate::s2::edge_crosser::EdgeCrosser;
-use crate::s2::edge_crossings::Crossing;
 use crate::s2::point::Point;
 use crate::s2::rect::Rect;
 use crate::s2::rect_bounder::expand_for_subregions;
@@ -32,13 +30,11 @@ use crate::s2::shape::{Chain, ChainPosition, Edge, ReferencePoint, Shape};
 use crate::s2::shape_index::{ShapeIndex, ShapeIndexIterator};
 use crate::shape::ShapeType;
 use crate::shape_index::CellRelation::{Disjoint, Indexed, Subdivided};
-use crate::shape_index::{CellRelation, FACE_CLIP_ERROR_UV_COORD};
+use crate::shape_index::FACE_CLIP_ERROR_UV_COORD;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::ops::AddAssign;
 
 /// Polygon represents a sequence of zero or more loops; recall that the
 /// interior of a loop is defined to be its left-hand side (see Loop).
@@ -119,13 +115,13 @@ impl Default for Polygon {
 }
 
 impl Hash for Polygon {
-    fn hash<H: Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, _state: &mut H) {
         todo!()
     }
 }
 
 impl PartialEq for Polygon {
-    fn eq(&self, other: &Self) -> bool {
+    fn eq(&self, _other: &Self) -> bool {
         todo!()
     }
 }
@@ -177,7 +173,7 @@ impl Polygon {
 
         for loop_ref in &mut loops {
             let angle = loop_ref.turning_angle();
-            if (angle.abs() > loop_ref.turning_angle_max_error()) {
+            if angle.abs() > loop_ref.turning_angle_max_error() {
                 // Normalize the loop.
                 if angle < 0.0 {
                     loop_ref.invert();
@@ -339,7 +335,7 @@ impl Polygon {
             // Add children in reverse order so they're processed in forward order
             for child in children.iter().rev() {
                 let mut loop_clone = unsafe { (**child).clone() };
-                loop_clone.depth = (depth + 1);
+                loop_clone.depth = depth + 1;
                 let clone_ptr = child; // We're using the same pointer
                 stack.push(*clone_ptr);
             }
@@ -353,7 +349,7 @@ impl Polygon {
         self.bound = self.loops[0].rect_bound();
         self.subregion_bound = expand_for_subregions(&self.bound);
         // Ensure the loops depth is set correctly.
-        self.loops[0].depth = (0);
+        self.loops[0].depth = 0;
 
         self.init_edges_and_index();
     }
@@ -516,7 +512,7 @@ impl Polygon {
         for i in 0..self.loops.len() {
             if i < best || i > last_best {
                 let mut loop_clone = self.loops[i].clone();
-                loop_clone.depth = (loop_clone.depth + 1);
+                loop_clone.depth = loop_clone.depth + 1;
                 new_loops.push(loop_clone);
             }
         }
@@ -525,7 +521,7 @@ impl Polygon {
         for i in 0..self.loops.len() {
             if i > best && i <= last_best {
                 let mut loop_clone = self.loops[i].clone();
-                loop_clone.depth = (loop_clone.depth - 1);
+                loop_clone.depth = loop_clone.depth - 1;
                 new_loops.push(loop_clone);
             }
         }
@@ -662,7 +658,7 @@ impl Polygon {
                     continue;
                 }
 
-                let nested = (j >= i + 1) && (j <= last);
+                let nested = (j > i) && (j <= last);
                 const REVERSE_B: bool = false;
 
                 if self.loops[i].contains_non_crossing_boundary(&self.loops[j], REVERSE_B) != nested
@@ -867,7 +863,7 @@ fn compare_loops(a: &Loop, b: &Loop) -> i32 {
         return a_dir_as_int - b_dir_as_int;
     }
 
-    for n in (0..(a.num_vertices() as i32)).rev() {
+    for _n in (0..(a.num_vertices() as i32)).rev() {
         let a_temp = a.vertex(ai + a_dir).0;
         let b_temp = b.vertex(bi + b_dir).0;
 
@@ -902,7 +898,7 @@ impl Shape for Polygon {
         let mut i: usize = 0;
 
         if !self.cumulative_edges.is_empty() {
-            for (idx, &cum_edge) in self.cumulative_edges.iter().enumerate() {
+            for (idx, &_cum_edge) in self.cumulative_edges.iter().enumerate() {
                 if idx + 1 >= self.cumulative_edges.len() || e < self.cumulative_edges[idx + 1] {
                     i = idx;
                     break;
@@ -921,9 +917,9 @@ impl Shape for Polygon {
 
         Edge {
             v0: self.loops[i]
-                .oriented_vertex((e - self.cumulative_edges.get(i).cloned().unwrap_or(0))),
+                .oriented_vertex(e - self.cumulative_edges.get(i).cloned().unwrap_or(0)),
             v1: self.loops[i]
-                .oriented_vertex((e - self.cumulative_edges.get(i).cloned().unwrap_or(0) + 1)),
+                .oriented_vertex(e - self.cumulative_edges.get(i).cloned().unwrap_or(0) + 1),
         }
     }
 
@@ -978,7 +974,7 @@ impl Shape for Polygon {
         let j = j as usize;
         Edge {
             v0: self.loops[i].oriented_vertex(j),
-            v1: self.loops[i].oriented_vertex((j + 1)),
+            v1: self.loops[i].oriented_vertex(j + 1),
         }
     }
 
@@ -989,7 +985,7 @@ impl Shape for Polygon {
         let mut i: usize = 0;
 
         if !self.cumulative_edges.is_empty() {
-            for (idx, &cum_edge) in self.cumulative_edges.iter().enumerate() {
+            for (idx, &_cum_edge) in self.cumulative_edges.iter().enumerate() {
                 if idx + 1 >= self.cumulative_edges.len()
                     || edge_id < self.cumulative_edges[idx + 1]
                 {

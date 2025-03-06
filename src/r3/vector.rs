@@ -133,11 +133,8 @@ impl std::ops::Mul<i64> for Vector {
     }
 }
 
-
-
 use std::cmp::*;
 use std::hash::{Hash, Hasher};
-use crate::point::Point;
 
 impl Eq for Vector {}
 
@@ -272,12 +269,10 @@ impl Vector {
             } else {
                 Axis::Z
             }
+        } else if a.y > a.z {
+            Axis::Y
         } else {
-            if a.y > a.z {
-                Axis::Y
-            } else {
-                Axis::Z
-            }
+            Axis::Z
         }
     }
 
@@ -290,12 +285,10 @@ impl Vector {
             } else {
                 Axis::Z
             }
+        } else if t.y < t.z {
+            Axis::Y
         } else {
-            if t.y < t.z {
-                Axis::Y
-            } else {
-                Axis::Z
-            }
+            Axis::Z
         }
     }
 }

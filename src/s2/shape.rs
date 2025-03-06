@@ -10,13 +10,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::convert::TryInto;
-use crate::r2::point::Point;
-use crate::s2::point::Point as s2Point;
-use std::cmp::*;
-use crate::lax_loop::{LaxLoop};
+use crate::lax_loop::LaxLoop;
 use crate::polygon::Polygon;
 use crate::r#loop::Loop;
+use crate::s2::point::Point as s2Point;
+use std::cmp::*;
+use std::convert::TryInto;
 // Edge represents a geodesic edge consisting of two vertices. Zero-length edges are
 // allowed, and can be used to represent points.
 
@@ -120,7 +119,7 @@ impl ReferencePoint {
     pub fn origin(contained: bool) -> Self {
         ReferencePoint {
             point: s2Point::origin(),
-            contained: contained,
+            contained,
         }
     }
 }
@@ -238,7 +237,7 @@ pub trait Shape {
 }
 
 impl PartialEq for ShapeType {
-    fn eq(&self, other: &Self) -> bool {
+    fn eq(&self, _other: &Self) -> bool {
         todo!()
     }
 }
@@ -246,18 +245,16 @@ impl PartialEq for ShapeType {
 impl Eq for ShapeType {}
 
 impl PartialOrd for ShapeType {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    fn partial_cmp(&self, _other: &Self) -> Option<Ordering> {
         todo!()
     }
 }
 
 impl Ord for ShapeType {
-    fn cmp(&self, other: &Self) -> Ordering {
+    fn cmp(&self, _other: &Self) -> Ordering {
         todo!()
     }
 }
-
-
 
 #[enum_delegate::implement(Shape)]
 #[derive(Debug, Clone, Hash)]

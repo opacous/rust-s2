@@ -22,7 +22,7 @@ use std::cmp::Ordering;
 /// Point represents a point in ℝ².
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct  Point {
+pub struct Point {
     /// x coordinate of the point
     pub x: f64,
     /// y coordinate of the point

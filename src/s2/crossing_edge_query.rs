@@ -7,8 +7,8 @@ use crate::s2::edge_crossings::Crossing;
 use crate::s2::point::Point;
 use crate::s2::shape::Shape;
 use crate::s2::shape_index::{CellRelation, ShapeIndex, ShapeIndexCell, ShapeIndexIterator};
-use crate::shape::{Edge, ShapeType};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use crate::shape::ShapeType;
+use std::collections::{HashMap, HashSet};
 
 /// CrossingType specifies the types of edge crossings to be reported.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -181,7 +181,7 @@ impl<'a> CrossingEdgeQuery<'a> {
     /// Returns a map from shapes to a superset of edges for that shape
     /// that intersect the edge AB.
     pub fn candidates_edge_map(&mut self, a: Point, b: Point) -> EdgeMap {
-        let shape = self.index.shape(0).as_ref().cloned();
+        let _shape = self.index.shape(0).as_ref().cloned();
 
         // If there are only a few edges then it's faster to use brute force. We
         // only bother with this optimization when there is a single shape.
@@ -457,7 +457,8 @@ mod tests {
     use super::*;
     use crate::s1::angle::Angle;
     use crate::s2::edge_crosser::next_after;
-    use crate::s2::random::{one_in, rng};
+    use crate::s2::random::one_in;
+    use crate::shape::Edge;
     use crate::shape::{Chain, ChainPosition, ReferencePoint};
     use rand::{thread_rng, Rng};
     use std::f64;
@@ -501,7 +502,7 @@ mod tests {
             }
         }
 
-        fn chain_edge(&self, chain_id: i64, offset: i64) -> Edge {
+        fn chain_edge(&self, chain_id: i64, _offset: i64) -> Edge {
             self.edges[chain_id as usize].clone()
         }
 

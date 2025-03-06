@@ -1,5 +1,4 @@
 use crate::consts::DBL_EPSILON;
-use crate::edgeutil::interpolate;
 use crate::metric::AVG_EDGEMETRIC;
 use crate::r1;
 use crate::r2::point::Point as R2Point;
@@ -14,8 +13,7 @@ use crate::shape::{Edge, Shape, ShapeType};
 use crate::shape_index::Status::Fresh;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Debug, Formatter};
-use std::ops::{Deref, Sub};
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::ops::Sub;
 use std::sync::{Arc, RwLock};
 
 // edgeClipErrorUVCoord is the maximum error in a u- or v-coordinate
@@ -330,7 +328,7 @@ impl<'a> ShapeIndexIterator<'a> {
 
             // For cells, we'll need to get a reference with the right lifetime
             // Clone the cell if it exists to avoid lifetime issues
-            if let Some(cell) = data_guard.cell_map.get(&self.id) {
+            if let Some(_cell) = data_guard.cell_map.get(&self.id) {
                 // Release the lock before setting the cell reference
                 drop(data_guard);
 
@@ -644,7 +642,7 @@ pub struct ShapeIndex {
 }
 
 impl Debug for ShapeIndex {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
         unimplemented!("Debugging formatting for ShapeIndex - it is never going to be comprehensive but it is useful for debugging")
     }
 }
@@ -1065,10 +1063,8 @@ impl ShapeIndex {
             if edge.bound.x.lo >= u {
                 return edge.clone();
             }
-        } else {
-            if edge.bound.x.hi <= u {
-                return edge.clone();
-            }
+        } else if edge.bound.x.hi <= u {
+            return edge.clone();
         }
 
         // We interpolate the new v-value from the endpoints of the original edge.
@@ -1103,10 +1099,8 @@ impl ShapeIndex {
             if edge.bound.y.lo >= v {
                 return edge.clone();
             }
-        } else {
-            if edge.bound.y.hi <= v {
-                return edge.clone();
-            }
+        } else if edge.bound.y.hi <= v {
+            return edge.clone();
         }
 
         // We interpolate the new u-value from the endpoints of the original edge.
@@ -1164,7 +1158,7 @@ impl ShapeIndex {
         let mut bound = R2Rect::empty();
 
         for face_edge in face_edges {
-            let mut clipped = ClippedEdge {
+            let clipped = ClippedEdge {
                 face_edge: face_edge.clone(),
                 bound: R2Rect::from_points(&[face_edge.a, face_edge.b]),
             };
@@ -1447,7 +1441,7 @@ impl ShapeIndex {
         // as we go along. Both sets of shape ids are already sorted.
         let mut e_next = 0;
         let mut c_next_idx = 0;
-        for i in 0..num_shapes {
+        for _i in 0..num_shapes {
             // Advance to next value base + i
             let mut e_shape_id = i32::MAX; // Sentinel
             let mut c_shape_id = i32::MAX; // Sentinel
@@ -1737,7 +1731,7 @@ fn max_level_for_edge(edge: Edge) -> i32 {
 
 // contains_brute_force determines if the shape contains the given point using a brute force approach.
 // This is used for point-in-polygon testing when initializing the Tracker.
-fn contains_brute_force(shape: ShapeType, point: Point) -> bool {
+fn contains_brute_force(shape: ShapeType, _point: Point) -> bool {
     // If the shape doesn't have an interior, it cannot contain any points
     if shape.dimension() != 2 {
         return false;

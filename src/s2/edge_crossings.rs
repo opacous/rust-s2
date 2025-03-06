@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::predicates::*;
 use std::cmp::Ordering;
 use std::ops::{Add, Mul, Sub};
 
@@ -121,13 +120,13 @@ pub fn vertex_crossing(a: &Point, b: &Point, c: &Point, d: &Point) -> bool {
 
     // Optimization: if AB=CD or AB=DC, we can avoid most of the calculations.
     if a == c {
-        return (b == d) || ordered_ccw(&a.referenceDir(), d, b, a);
+        return (b == d) || ordered_ccw(&a.reference_dir(), d, b, a);
     } else if b == d {
-        return ordered_ccw(&b.referenceDir(), c, a, b);
+        return ordered_ccw(&b.reference_dir(), c, a, b);
     } else if a == d {
-        return (b == c) || ordered_ccw(&a.referenceDir(), c, b, a);
+        return (b == c) || ordered_ccw(&a.reference_dir(), c, b, a);
     } else if b == c {
-        return ordered_ccw(&b.referenceDir(), d, a, b);
+        return ordered_ccw(&b.reference_dir(), d, a, b);
     }
 
     false
@@ -176,7 +175,7 @@ pub fn intersection(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Point {
     //  - intersectionExact computes the intersection point using precision
     //    arithmetic and converts the final result back to an Point.
     let mut pt =
-        intersection_stable(a0, a1, b0, b1).unwrap_or_else(|e| intersection_exact(a0, a1, b0, b1));
+        intersection_stable(a0, a1, b0, b1).unwrap_or_else(|_e| intersection_exact(a0, a1, b0, b1));
 
     // Make sure the intersection point is on the correct side of the sphere.
     // Since all vertices are unit length, and edges are less than 180 degrees,
@@ -223,8 +222,8 @@ fn projection(x: &Vector, a_norm: &Vector, a_norm_len: f64, a0: &Point, a1: &Poi
     // typically reduces the error by a huge factor.
     let x0 = x.sub(&a0.0);
     let x1 = x.sub(&a1.0);
-    let x0Dist2 = x0.norm2();
-    let x1Dist2 = x1.norm2();
+    let x0_dist2 = x0.norm2();
+    let x1_dist2 = x1.norm2();
 
     // If both distances are the same, we need to be careful to choose one
     // endpoint deterministically so that the result does not change if the
@@ -232,11 +231,11 @@ fn projection(x: &Vector, a_norm: &Vector, a_norm_len: f64, a0: &Point, a1: &Poi
     let mut dist = 0.0;
     let mut proj = 0.0;
 
-    if x0Dist2 < x1Dist2 || (x0Dist2 == x1Dist2 && x0.cmp(&x1) == Ordering::Less) {
-        dist = x0Dist2.sqrt();
+    if x0_dist2 < x1_dist2 || (x0_dist2 == x1_dist2 && x0.cmp(&x1) == Ordering::Less) {
+        dist = x0_dist2.sqrt();
         proj = x0.dot(&a_norm);
     } else {
-        dist = x1Dist2.sqrt();
+        dist = x1_dist2.sqrt();
         proj = x1.dot(&a_norm)
     }
 
@@ -260,7 +259,7 @@ fn projection(x: &Vector, a_norm: &Vector, a_norm_len: f64, a0: &Point, a1: &Poi
 // compareEdges reports whether (a0,a1) is less than (b0,b1) with respect to a total
 // ordering on edges that is invariant under edge reversals.
 fn compare_edges(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> bool {
-    let (a0, a1) = match a0.0.cmp(&a1.0) {
+    let (a0, _a1) = match a0.0.cmp(&a1.0) {
         Ordering::Less => (a0, a1),
         Ordering::Equal => (a1, a0),
         Ordering::Greater => (a1, a0),
@@ -290,9 +289,9 @@ fn intersection_stable(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Result
     //  - It reduces error, since the first edge is used to compute the edge
     //    normal (where a longer edge means less error), and the second edge
     //    is used for interpolation (where a shorter edge means less error).
-    let aLen2 = a1.0.sub(a0.0).norm2();
-    let bLen2 = b1.0.sub(b0.0).norm2();
-    if aLen2 < bLen2 || (aLen2 == bLen2 && compare_edges(a0, a1, b0, b1)) {
+    let a_len2 = a1.0.sub(a0.0).norm2();
+    let b_len2 = b1.0.sub(b0.0).norm2();
+    if a_len2 < b_len2 || (a_len2 == b_len2 && compare_edges(a0, a1, b0, b1)) {
         return intersect_stable_sorted(b0, b1, a0, a1);
     }
 
@@ -302,23 +301,18 @@ fn intersection_stable(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Result
 // intersectionStableSorted is a helper fntion for intersectionStable.
 // It expects that the edges (a0,a1) and (b0,b1) have been sorted so that
 // the first edge passed in is longer.
-fn intersect_stable_sorted(
-    a0: &Point,
-    a1: &Point,
-    b0: &Point,
-    b1: &Point,
-) -> Result<Point, Point> {
-    let mut pt = Point::default();
+fn intersect_stable_sorted(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Result<Point, Point> {
+    let pt = Point::default();
 
     // Compute the normal of the plane through (a0, a1) in a stable way.
     let a_norm = a0.0.sub(a1.0).cross(&a0.0.add(a1.0));
     let a_norm_len = a_norm.norm();
-    let bLen = b1.sub(b0).norm();
+    let b_len = b1.sub(b0).norm();
 
     // Compute the projection (i.e., signed distance) of b0 and b1 onto the
     // plane through (a0, a1).  Distances are scaled by the length of a_norm.
-    let (b0Dist, b0Error) = projection(&b0.0, &a_norm, a_norm_len, &a0, &a1);
-    let (b1Dist, b1Error) = projection(&b1.0, &a_norm, a_norm_len, &a0, &a1);
+    let (b0_dist, b0_error) = projection(&b0.0, &a_norm, a_norm_len, &a0, &a1);
+    let (b1_dist, b1_error) = projection(&b1.0, &a_norm, a_norm_len, &a0, &a1);
 
     // The total distance from b0 to b1 measured perpendicularly to (a0,a1) is
     // |b0Dist - b1Dist|.  Note that b0Dist and b1Dist generally have
@@ -332,14 +326,14 @@ fn intersect_stable_sorted(
     //
     // We save ourselves some work by scaling the result and the error bound by
     // "dist_sum", since the result is normalized to be unit length anyway.
-    let dist_sum = (b0Dist - b1Dist).abs();
-    let error_sum = b0Error + b1Error;
+    let dist_sum = (b0_dist - b1_dist).abs();
+    let error_sum = b0_error + b1_error;
     if dist_sum <= error_sum {
         return Err(pt); // Error is unbounded in this case.
     }
 
-    let x = b1.mul(b0Dist).sub(b0.mul(b1Dist));
-    let err = bLen * (b0Dist * b1Error - b1Dist * b0Error).abs() / (dist_sum - error_sum)
+    let x = b1.mul(b0_dist).sub(b0.mul(b1_dist));
+    let err = b_len * (b0_dist * b1_error - b1_dist * b0_error).abs() / (dist_sum - error_sum)
         + 2.0 * dist_sum * DBL_EPSILON;
 
     // Finally we normalize the result, compute the corresponding error, and
@@ -432,7 +426,7 @@ pub fn angle_contains_vertex(a: &Point, b: &Point, c: &Point) -> bool {
     // Note that the test below is written so as to get correct results when the
     // angle ABC is degenerate. If A = C or C = R it returns false, and
     // otherwise if A = R it returns true.
-    return !ordered_ccw(&b.referenceDir(), c, a, b);
+    return !ordered_ccw(&b.reference_dir(), c, a, b);
 }
 
 // TODO(roberts): Differences from C++
@@ -608,7 +602,7 @@ mod tests {
     fn test_angle_contains_vertex() {
         let a = point_from_coords(1.0, 0.0, 0.0);
         let b = point_from_coords(0.0, 1.0, 0.0);
-        let ref_b = b.referenceDir();
+        let ref_b = b.reference_dir();
 
         // Degenerate angle ABA.
         assert!(

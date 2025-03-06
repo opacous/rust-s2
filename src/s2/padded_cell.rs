@@ -349,8 +349,8 @@ impl PaddedCell {
 
         let mut i_min = self.i_lo;
         let mut j_min = self.j_lo;
-        let mut i_xor;
-        let mut j_xor;
+        let i_xor;
+        let j_xor;
 
         // Calculate minimum i-coordinate
         let padded_i_min = st_to_ij(uv_to_st(padded.x.lo)) as i64;
@@ -406,7 +406,7 @@ mod tests {
     use crate::r2::rect::Rect as R2Rect;
     use crate::s2::cellid::CellID;
     use crate::s2::random;
-    use crate::s2::stuv::face_siti_to_xyz;
+
     use rand::Rng;
     use std::f64;
 

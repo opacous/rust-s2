@@ -122,16 +122,8 @@ impl CellID {
         const SCALE: f64 = 1.0 / (MAX_SIZE as f64);
         const LIMIT: f64 = 1f64 + f64::EPSILON;
 
-        let u = clamp(
-            SCALE * (2. * (i as f64) + 1. - MAX_SIZE_F64),
-            -LIMIT,
-            LIMIT,
-        );
-        let v = clamp(
-            SCALE * (2. * (j as f64) + 1. - MAX_SIZE_F64),
-            -LIMIT,
-            LIMIT,
-        );
+        let u = clamp(SCALE * (2. * (i as f64) + 1. - MAX_SIZE_F64), -LIMIT, LIMIT);
+        let v = clamp(SCALE * (2. * (j as f64) + 1. - MAX_SIZE_F64), -LIMIT, LIMIT);
 
         // Find the leaf cell coordinates on the adjacent face, and convert
         // them to a cell id at the appropriate level.
@@ -189,7 +181,6 @@ impl CellID {
     // }
     // return id
     // }
-
 
     // from_string returns a CellID from a string in the form "1/3210".
     pub fn from_string(s: &str) -> CellID {

@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consts::{f64_eq, DBL_EPSILON};
+use crate::consts::DBL_EPSILON;
 use crate::error::S2Error;
 use crate::point::{get_frame, ordered_ccw, regular_points_for_frame};
-use crate::r1::interval::Interval as R1Interval;
 use crate::r3::vector::Vector as R3Vector;
 use crate::rect_bounder::expand_for_subregions;
 use crate::region::Region;
@@ -23,7 +22,6 @@ use crate::s1;
 use crate::s1::Angle;
 use crate::s2::cap::Cap;
 use crate::s2::cell::Cell;
-use crate::s2::cellid::CellID;
 use crate::s2::edge_clipping::{
     clip_to_padded_face, edge_intersects_rect, INTERSECT_RECT_ERROR_UV_DIST,
 };
@@ -33,7 +31,7 @@ use crate::s2::point::Point;
 use crate::s2::rect::Rect;
 use crate::s2::rect_bounder::RectBounder;
 use crate::s2::shape::{Chain, ChainPosition, Edge, ReferencePoint, Shape, ShapeType};
-use crate::s2::shape_index::{CellRelation, ShapeIndex};
+use crate::s2::shape_index::ShapeIndex;
 use crate::shape_index::CellRelation::{Disjoint, Indexed, Subdivided};
 use crate::shape_index::FACE_CLIP_ERROR_UV_COORD;
 use cgmath::Matrix3;
@@ -43,7 +41,8 @@ use std::f64;
 use std::f64::consts::PI;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
-use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub};
+use std::ops::{Add, AddAssign, Mul, Neg, Sub};
+use crate::consts::EPSILON;
 
 pub enum OriginBound {
     OriginInside,
@@ -131,7 +130,7 @@ pub struct Loop {
 }
 
 impl PartialEq for Loop {
-    fn eq(&self, other: &Self) -> bool {
+    fn eq(&self, _other: &Self) -> bool {
         todo!()
     }
 }
@@ -139,7 +138,7 @@ impl PartialEq for Loop {
 impl Eq for Loop {}
 
 impl Hash for Loop {
-    fn hash<H: Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, _state: &mut H) {
         todo!()
     }
 }
@@ -200,7 +199,7 @@ const FULL_LOOP_POINT: Point = Point(R3Vector {
 });
 
 impl Debug for Loop {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
         todo!()
     }
 }
@@ -596,17 +595,15 @@ impl Loop {
 
         // Check whether A contains B, or A and B contain each other's boundaries.
         // (Note that A contains all the vertices of B in either case.)
-        if self.subregion_bound.contains(&o.bound.clone()) || self.bound.union(&o.bound).is_full() {
-            if self.contains_point(o.vertex(0)) {
-                return true;
-            }
+        if (self.subregion_bound.contains(&o.bound.clone()) || self.bound.union(&o.bound).is_full())
+            && self.contains_point(o.vertex(0))
+        {
+            return true;
         }
 
         // Check whether B contains A.
-        if o.subregion_bound.contains(&self.bound.clone()) {
-            if o.contains_point(self.vertex(0)) {
-                return true;
-            }
+        if o.subregion_bound.contains(&self.bound.clone()) && o.contains_point(self.vertex(0)) {
+            return true;
         }
 
         false
@@ -908,7 +905,7 @@ pub enum BoundaryCondition {
 }
 
 impl PartialEq<i32> for BoundaryCondition {
-    fn eq(&self, other: &i32) -> bool {
+    fn eq(&self, _other: &i32) -> bool {
         todo!()
     }
 }
@@ -1093,7 +1090,7 @@ impl LoopRelation for CompareBoundaryRelation {
         a0: &Point,
         ab1: &Point,
         a2: &Point,
-        b0: &Point,
+        _b0: &Point,
         b2: &Point,
     ) -> bool {
         // Because we don't care about the interior of the other, only its boundary,
@@ -1249,11 +1246,11 @@ impl Loop {
     // This requires that it.Locate(target) returned Indexed.
     pub fn boundary_approx_intersects(&self, target: &crate::s2::cell::Cell) -> bool {
         let it = self.index.iterator();
-        let aClipped = it.index_cell().unwrap().find_by_shape_id(0).unwrap();
+        let a_clipped = it.index_cell().unwrap().find_by_shape_id(0).unwrap();
 
         // If there are no edges, there is no intersection.
         // TODO: Potentially the wrong way to do this maybe directly counting edges is right?
-        if aClipped.num_edges() == 0 {
+        if a_clipped.num_edges() == 0 {
             return false;
         }
 
@@ -1263,14 +1260,14 @@ impl Loop {
         }
 
         // Otherwise check whether any of the edges intersect target.
-        let maxError = (FACE_CLIP_ERROR_UV_COORD + INTERSECT_RECT_ERROR_UV_DIST);
-        let bound = target.bound_uv().expanded_by_margin(maxError);
-        for (_, ai) in aClipped.edges.iter().enumerate() {
+        let max_error = FACE_CLIP_ERROR_UV_COORD + INTERSECT_RECT_ERROR_UV_DIST;
+        let bound = target.bound_uv().expanded_by_margin(max_error);
+        for (_, ai) in a_clipped.edges.iter().enumerate() {
             let v0_outer = clip_to_padded_face(
                 &self.vertex(*ai as usize),
                 &self.vertex((ai + 1) as usize),
                 target.face(),
-                maxError,
+                max_error,
             );
             if let Some((v0, v1)) = v0_outer
                 && edge_intersects_rect(v0, v1, &bound.clone())
@@ -1492,7 +1489,7 @@ impl Loop {
         // Decode snap level
         let mut snap_level_bytes = [0u8; 4];
         snap_level_bytes.copy_from_slice(&data[1..5]);
-        let snap_level = i32::from_be_bytes(snap_level_bytes);
+        let _snap_level = i32::from_be_bytes(snap_level_bytes);
 
         // Decode number of vertices
         let mut num_vertices_bytes = [0u8; 4];
@@ -1571,14 +1568,14 @@ impl Shape for Loop {
         }
     }
 
-    fn chain(&self, chain_id: i64) -> Chain {
+    fn chain(&self, _chain_id: i64) -> Chain {
         Chain {
             start: 0,
             length: self.num_edges(),
         }
     }
 
-    fn chain_edge(&self, chain_id: i64, offset: i64) -> Edge {
+    fn chain_edge(&self, _chain_id: i64, offset: i64) -> Edge {
         Edge {
             v0: self.vertex(offset as usize),
             v1: self.vertex((offset as usize) + 1),
@@ -1941,7 +1938,7 @@ impl Loop {
             if self.vertex(i + 1).0.angle(&origin.0).0 > MAX_LENGTH {
                 let old_origin = origin;
                 if origin == self.vertex(0) {
-                    origin = (self.vertex(0).cross(&self.vertex(i)).normalize());
+                    origin = self.vertex(0).cross(&self.vertex(i)).normalize();
                 } else if self.vertex(i).0.angle(&self.vertex(0).0).0 < MAX_LENGTH {
                     origin = self.vertex(0);
                 } else {
@@ -2001,6 +1998,7 @@ fn signed_area(a: Point, b: Point, c: Point) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::consts::f64_eq;
     use crate::r3::vector::Vector as R3Vector;
     use crate::s1::angle::Angle;
     use crate::s1::Deg;
@@ -2008,7 +2006,7 @@ mod tests {
     use crate::s2::cellid::CellID;
     use crate::s2::point::Point;
     use crate::s2::shape::Shape;
-    use std::cmp::PartialEq;
+
     use std::convert::TryInto;
     use std::f64::consts::PI;
 
@@ -2327,7 +2325,7 @@ mod tests {
         // Test vertex iteration
         for i in 0..north.num_vertices() {
             let v = north.vertex(i);
-            assert!((v.0.z > 0.0) || f64_eq(v.0.z, 0.0)); // All vertices have z ≥ 0
+            assert!((v.0.z > 0.0) || f64_eq!(v.0.z, 0.0)); // All vertices have z ≥ 0
         }
 
         // Test edge access

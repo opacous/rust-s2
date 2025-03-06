@@ -13,14 +13,12 @@
 // limitations under the License.
 
 use crate::s2::cap::Cap;
-use crate::s2::cell::Cell;
 use crate::s2::cellid::CellID;
 use crate::s2::cellunion::CellUnion;
 use crate::s2::point::Point;
 use crate::s2::rect::Rect;
 use crate::s2::region::Region;
 use crate::s2::shape_index::{ShapeIndex, ShapeIndexIterator};
-use std::marker::PhantomData;
 
 /// A wrapper used for ContainsPointQuery. This will need to be properly implemented.
 /// This is a temporary implementation to make the code compile.
@@ -38,7 +36,7 @@ impl<'a> ContainsPointQuery<'a> {
         }
     }
 
-    pub fn contains(&self, point: Point) -> bool {
+    pub fn contains(&self, _point: Point) -> bool {
         // This is a placeholder implementation
         // TODO: Implement properly
         false
@@ -221,7 +219,7 @@ impl<'a> ShapeIndexRegion<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cellid::MAX_LEVEL;
+
     use crate::consts::DBL_EPSILON;
     use crate::r2;
     use crate::r2::rect::Rect as R2Rect;
@@ -230,9 +228,9 @@ mod tests {
     use crate::s2::cell::Cell;
     use crate::s2::cellid::CellID;
     use crate::s2::lax_loop::LaxLoop;
-    use crate::s2::point::Point;
+
     use crate::s2::stuv::face_uv_to_xyz;
-    use crate::shape::{Chain, ChainPosition, Edge, Shape, ShapeType};
+    use crate::shape::ShapeType;
     use crate::shape_index_region::ShapeIndex;
 
     // Set padding to at least twice the maximum error for reliable results.

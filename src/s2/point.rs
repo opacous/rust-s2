@@ -1,6 +1,6 @@
 use std;
 
-use cgmath::{ortho, Matrix, Matrix3, Vector3};
+use cgmath::{Matrix, Matrix3, Vector3};
 
 use crate::consts::*;
 use crate::r3::vector::Vector;
@@ -211,7 +211,7 @@ impl Point {
     // deciding whether a polygon with semi-open boundaries contains the given vertex "a"
     // (see ContainsVertexQuery). The result is unit length and is guaranteed
     // to be different from the given point "a".
-    pub fn referenceDir(&self) -> Point {
+    pub fn reference_dir(&self) -> Point {
         self.ortho()
     }
 }
