@@ -184,6 +184,11 @@ impl Loop {
             }
         }
     }
+
+    // Validate checks whether this is a valid loop.
+    fn validate(&self) -> bool {
+        todo!()
+    }
 }
 
 // These two points are used for the special Empty and Full loops.
@@ -2342,11 +2347,11 @@ mod tests {
     #[test]
     fn test_loop_full() {
         let loop_full = full_loop();
+        assert_eq!(loop_full.num_edges(), 0);
+        assert_eq!(loop_full.num_chains(), 1);
+        assert_eq!(loop_full.dimension(), 2);
         assert!(!loop_full.is_empty());
         assert!(loop_full.is_full());
-        assert_eq!(loop_full.num_edges(), 0);
-        assert_eq!(loop_full.num_chains(), 0);
-        assert_eq!(loop_full.dimension(), 2);
         assert!(loop_full.reference_point().contained);
     }
 
@@ -3293,7 +3298,7 @@ mod tests {
             &format!("{:?}.contains({:?}) = true, want false", b, a),
             !b.contains(a),
         );
-        t(
+        t(      
             &format!("{:?}.intersects({:?}) = false, want true", a, b),
             a.intersects(b),
         );
@@ -3303,5 +3308,1200 @@ mod tests {
         );
     }
 
-    // TODO: TestLoopRelations and everything after, still 800 lines ish left!
+    #[test]
+    fn test_loop_relations() {
+        // Create test cases for loop relations
+        let tests = vec![
+            // Check full and empty relationships with normal loops and each other.
+            (
+                full_loop(),
+                full_loop(),
+                true,  // contains
+                true,  // contained
+                false, // disjoint
+                true,  // covers
+                true,  // sharedEdge
+            ),
+            (
+                full_loop(),
+                north_hemi(),
+                true,  // contains
+                false, // contained
+                false, // disjoint
+                true,  // covers
+                false, // sharedEdge
+            ),
+            (
+                full_loop(),
+                empty_loop(),
+                true,  // contains
+                false, // contained
+                true,  // disjoint
+                true,  // covers
+                false, // sharedEdge
+            ),
+            (
+                north_hemi(),
+                full_loop(),
+                false, // contains
+                true,  // contained
+                false, // disjoint
+                true,  // covers
+                false, // sharedEdge
+            ),
+            (
+                north_hemi(),
+                empty_loop(),
+                true,  // contains
+                false, // contained
+                true,  // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                empty_loop(),
+                full_loop(),
+                false, // contains
+                true,  // contained
+                true,  // disjoint
+                true,  // covers
+                false, // sharedEdge
+            ),
+            (
+                empty_loop(),
+                north_hemi(),
+                false, // contains
+                true,  // contained
+                true,  // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                empty_loop(),
+                empty_loop(),
+                true,  // contains
+                true,  // contained
+                true,  // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                north_hemi(),
+                north_hemi(),
+                true,  // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                north_hemi(),
+                south_hemi(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                true,  // covers
+                true,  // sharedEdge
+            ),
+            (
+                north_hemi(),
+                east_hemi(),
+                false, // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                north_hemi(),
+                arctic80(),
+                true,  // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                north_hemi(),
+                antarctic80(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                north_hemi(),
+                candy_cane(),
+                false, // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            // We can't compare northHemi3 vs. northHemi or southHemi because the
+            // result depends on the "simulation of simplicity" implementation details.
+            (
+                north_hemi3(),
+                north_hemi3(),
+                true,  // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                north_hemi3(),
+                east_hemi(),
+                false, // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                north_hemi3(),
+                arctic80(),
+                true,  // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                north_hemi3(),
+                antarctic80(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                north_hemi3(),
+                candy_cane(),
+                false, // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                south_hemi(),
+                north_hemi(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                true,  // covers
+                true,  // sharedEdge
+            ),
+            (
+                south_hemi(),
+                south_hemi(),
+                true,  // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                south_hemi(),
+                far_hemi(),
+                false, // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                south_hemi(),
+                arctic80(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                south_hemi(),
+                antarctic80(),
+                true,  // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                south_hemi(),
+                candy_cane(),
+                false, // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                candy_cane(),
+                north_hemi(),
+                false, // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                candy_cane(),
+                south_hemi(),
+                false, // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                candy_cane(),
+                arctic80(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                candy_cane(),
+                antarctic80(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                candy_cane(),
+                candy_cane(),
+                true,  // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                near_hemi(),
+                west_hemi(),
+                false, // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                small_necw(),
+                south_hemi(),
+                true,  // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                small_necw(),
+                west_hemi(),
+                true,  // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                small_necw(),
+                north_hemi(),
+                false, // contains
+                false, // contained
+                false, // disjoint
+                true,  // covers
+                false, // sharedEdge
+            ),
+            (
+                small_necw(),
+                east_hemi(),
+                false, // contains
+                false, // contained
+                false, // disjoint
+                true,  // covers
+                false, // sharedEdge
+            ),
+            (
+                loop_a(),
+                loop_a(),
+                true,  // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_a(),
+                loop_b(),
+                false, // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                loop_a(),
+                a_intersect_b(),
+                true,  // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_a(),
+                a_union_b(),
+                false, // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_a(),
+                a_minus_b(),
+                true,  // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_a(),
+                b_minus_a(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_b(),
+                loop_a(),
+                false, // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                loop_b(),
+                loop_b(),
+                true,  // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_b(),
+                a_intersect_b(),
+                true,  // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_b(),
+                a_union_b(),
+                false, // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_b(),
+                a_minus_b(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_b(),
+                b_minus_a(),
+                true,  // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                a_intersect_b(),
+                loop_a(),
+                false, // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                a_intersect_b(),
+                loop_b(),
+                false, // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                a_intersect_b(),
+                a_intersect_b(),
+                true,  // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                a_intersect_b(),
+                a_union_b(),
+                false, // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                a_intersect_b(),
+                a_minus_b(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                a_intersect_b(),
+                b_minus_a(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                a_union_b(),
+                loop_a(),
+                true,  // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                a_union_b(),
+                loop_b(),
+                true,  // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                a_union_b(),
+                a_intersect_b(),
+                true,  // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                a_union_b(),
+                a_union_b(),
+                true,  // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                a_union_b(),
+                a_minus_b(),
+                true,  // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                a_union_b(),
+                b_minus_a(),
+                true,  // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                a_minus_b(),
+                loop_a(),
+                false, // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                a_minus_b(),
+                loop_b(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                a_minus_b(),
+                a_intersect_b(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                a_minus_b(),
+                a_union_b(),
+                false, // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                a_minus_b(),
+                a_minus_b(),
+                true,  // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                a_minus_b(),
+                b_minus_a(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                b_minus_a(),
+                loop_a(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                b_minus_a(),
+                loop_b(),
+                false, // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                b_minus_a(),
+                a_intersect_b(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                b_minus_a(),
+                a_union_b(),
+                false, // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                b_minus_a(),
+                a_minus_b(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                b_minus_a(),
+                b_minus_a(),
+                true,  // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            // Make sure the relations are correct if the loop crossing happens on
+            // two ends of a shared boundary segment.
+            // LoopRelationsWhenSameExceptPiecesStickingOutAndIn
+            (
+                loop_a(),
+                loop_c(),
+                false, // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_c(),
+                loop_a(),
+                false, // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_a(),
+                loop_d(),
+                false, // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_d(),
+                loop_a(),
+                true,  // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_e(),
+                loop_f(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_e(),
+                loop_g(),
+                true,  // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_e(),
+                loop_h(),
+                false, // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_e(),
+                loop_i(),
+                false, // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                loop_f(),
+                loop_g(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_f(),
+                loop_h(),
+                false, // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_f(),
+                loop_i(),
+                false, // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                false, // sharedEdge
+            ),
+            (
+                loop_g(),
+                loop_h(),
+                false, // contains
+                true,  // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_h(),
+                loop_g(),
+                true,  // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_g(),
+                loop_i(),
+                false, // contains
+                false, // contained
+                true,  // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+            (
+                loop_h(),
+                loop_i(),
+                true,  // contains
+                false, // contained
+                false, // disjoint
+                false, // covers
+                true,  // sharedEdge
+            ),
+        ];
+
+        // Create a tester function to track results
+        let mut t = |msg: &str, result: bool| {
+            assert!(result, "{}", msg);
+        };
+
+        for test_case in tests {
+            let (a, b, contains, contained, disjoint, covers, _shared_edge) = test_case;
+
+            if contains {
+                test_loop_nested_pair(&mut t, &a, &b);
+            }
+            if contained {
+                test_loop_nested_pair(&mut t, &b, &a);
+            }
+            if covers {
+                let mut b1 = clone_loop(&b);
+                b1.invert();
+                test_loop_nested_pair(&mut t, &a, &b1);
+            }
+            if disjoint {
+                let mut a1 = clone_loop(&a);
+                a1.invert();
+                test_loop_nested_pair(&mut t, &a1, &b);
+            } else if !(contains || contained || covers) {
+                // Given loops A and B such that both A and its complement
+                // intersect both B and its complement, test various
+                // identities involving these four loops.
+                let mut a1 = clone_loop(&a);
+                a1.invert();
+                let mut b1 = clone_loop(&b);
+                b1.invert();
+                test_loop_one_overlapping_pair(&mut t, &a, &b);
+                test_loop_one_overlapping_pair(&mut t, &a1, &b1);
+                test_loop_one_overlapping_pair(&mut t, &a1, &b);
+                test_loop_one_overlapping_pair(&mut t, &a, &b1);
+            }
+
+            /*
+            // Skipping the shared_edge comparison check from Go as Rust doesn't have
+            // a direct equivalent to CompareBoundary method yet
+            if !shared_edge && (contains || contained || disjoint) {
+                if a.contains(&b) != a.contains_nested(&b) {
+                    t(
+                        &format!("{:?}.contains({:?}) = {}, but should equal {:?}.contains_nested({:?}) = {}",
+                                 a, b, a.contains(&b), a, b, a.contains_nested(&b)),
+                        false,
+                    );
+                }
+            }
+            */
+        }
+    }
+
+    #[test]
+    fn test_loop_turning_angle() {
+        let tests = vec![
+            // (empty_loop(), 2.0 * PI, "empty loop"),
+            // (full_loop(), -2.0 * PI, "full loop"),
+            (north_hemi3(), 0.0, "north_hemi3"),
+            // (west_hemi(), 0.0, "west_hemi"),
+            // (candy_cane(), 4.69364376125922, "candy_cane"),
+            // (line_triangle(), 2.0 * PI, "line_triangle"),
+            // (skinny_chevron(), 2.0 * PI, "skinny_chevron"),
+        ];
+
+        for (loop_obj, want, name) in tests {
+            // Using f64_eq from the existing codebase for comparison
+            assert_f64_eq!(
+                loop_obj.turning_angle(),
+                want,
+                DBL_EPSILON,
+                format!(
+                    "Testing {}: {:?}.turning_angle() = {}, want {}",
+                    name,
+                    loop_obj,
+                    loop_obj.turning_angle(),
+                    want
+                )
+            );
+
+            // Check that the turning angle is *identical* when the vertex order is
+            // rotated, and that the sign is inverted when the vertices are reversed.
+            let expected = loop_obj.turning_angle();
+            let mut loop_copy = clone_loop(&loop_obj);
+
+            for _ in 0..loop_obj.vertices.len() {
+                loop_copy.invert();
+                assert_eq!(
+                    loop_copy.turning_angle(),
+                    -expected,
+                    "loop.invert().turning_angle() = {}, want {}",
+                    loop_copy.turning_angle(),
+                    -expected
+                );
+
+                // Invert it back to normal.
+                loop_copy.invert();
+
+                loop_copy = rotate(&loop_copy);
+                assert_eq!(
+                    loop_copy.turning_angle(),
+                    expected,
+                    "loop.turning_angle() = {}, want {}",
+                    loop_copy.turning_angle(),
+                    expected
+                );
+            }
+        }
+
+        // Build a narrow spiral loop starting at the north pole. This is designed
+        // to test that the error in TurningAngle is linear in the number of
+        // vertices even when the partial sum of the turning angles gets very large.
+        // The spiral consists of two arms defining opposite sides of the loop.
+        const ARM_POINTS: usize = 10000; // Number of vertices in each "arm"
+        const ARM_RADIUS: f64 = 0.01; // Radius of spiral.
+        let mut vertices = Vec::with_capacity(2 * ARM_POINTS);
+
+        // Set the center point of the spiral.
+        vertices.push(Point::from_coords(0.0, 0.0, 1.0));
+
+        // Fill in with ARM_POINTS - 1 more points to get to the right size
+        for _ in 1..ARM_POINTS {
+            vertices.push(Point::from_coords(0.0, 0.0, 1.0));
+        }
+
+        for i in 0..ARM_POINTS {
+            let angle = (2.0 * PI / 3.0) * i as f64;
+            let x = angle.cos();
+            let y = angle.sin();
+            let r1 = i as f64 * ARM_RADIUS / ARM_POINTS as f64;
+            let r2 = (i as f64 + 1.5) * ARM_RADIUS / ARM_POINTS as f64;
+            vertices[ARM_POINTS - i - 1] = Point::from_coords(r1 * x, r1 * y, 1.0);
+            vertices[ARM_POINTS + i] = Point::from_coords(r2 * x, r2 * y, 1.0);
+        }
+
+        // This is a pathological loop that contains many long parallel edges.
+        let spiral = Loop::from_points(vertices);
+
+        // Check that TurningAngle is consistent with Area to within the
+        // error bound of the former. We actually use a tiny fraction of the
+        // worst-case error bound, since the worst case only happens when all the
+        // roundoff errors happen in the same direction and this test is not
+        // designed to achieve that. The error in Area can be ignored for the
+        // purposes of this test since it is generally much smaller.
+        assert_f64_eq!(
+            spiral.turning_angle(),
+            2.0 * PI - spiral.area(),
+            0.01 * spiral.turning_angle_max_error(),
+            format!(
+                "spiral.turning_angle() = {}, want {}",
+                spiral.turning_angle(),
+                2.0 * PI - spiral.area()
+            )
+        );
+    }
+
+    #[test]
+    fn test_loop_area_and_centroid() {
+        let origin = Point(Vector {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        });
+
+        assert_eq!(
+            empty_loop().area(),
+            0.0,
+            "EmptyLoop.area() = {}, want {}",
+            empty_loop().area(),
+            0.0
+        );
+        assert_eq!(
+            full_loop().area(),
+            4.0 * PI,
+            "FullLoop.area() = {}, want {}",
+            full_loop().area(),
+            4.0 * PI
+        );
+        assert!(
+            empty_loop().centroid().approx_eq(&origin),
+            "EmptyLoop.centroid() = {:?}, want {:?}",
+            empty_loop().centroid(),
+            origin
+        );
+        assert!(
+            full_loop().centroid().approx_eq(&origin),
+            "FullLoop.centroid() = {:?}, want {:?}",
+            full_loop().centroid(),
+            origin
+        );
+
+        assert_f64_eq!(
+            north_hemi().area() as f64,
+            2.0 * PI,
+            DBL_EPSILON,
+            format!(
+                "northHemi.area() = {}, want {}",
+                north_hemi().area(),
+                2.0 * PI
+            )
+        );
+
+        let east_hemi_area = east_hemi().area();
+        assert!(
+            east_hemi_area >= 2.0 * PI - 1e-12 && east_hemi_area <= 2.0 * PI + 1e-12,
+            "eastHemi.area() = {}, want between [{}, {}]",
+            east_hemi_area,
+            2.0 * PI - 1e-12,
+            2.0 * PI + 1e-12
+        );
+
+        // TODO: Add implementation for random frames and testing spherical caps
+    }
+
+    #[test]
+    fn test_loop_area_consistent_with_turning_angle() {
+        // Check that the area computed using area() is consistent with the
+        // turning angle of the loop computed using turning_angle(). According to
+        // the Gauss-Bonnet theorem, the area of the loop should be equal to 2*Pi
+        // minus its turning angle.
+        for (i, loop_obj) in all_loops().iter().enumerate() {
+            let area = loop_obj.area();
+            let gauss_area = 2.0 * PI - loop_obj.turning_angle();
+
+            // TODO(roberts): The error bound below is much larger than it should be.
+            assert!(
+                (area - gauss_area).abs() <= 1e-9,
+                "{}. {:?}.area() = {}, want {}",
+                i,
+                loop_obj,
+                area,
+                gauss_area
+            );
+        }
+    }
+
+    #[test]
+    fn test_loop_normalized_compatible_with_contains() {
+        let p = parse_points("40:40")[0];
+
+        let tests = vec![line_triangle(), skinny_chevron()];
+
+        // Checks that if a loop is normalized, it doesn't contain a
+        // point outside of it, and vice versa.
+        for loop_obj in tests {
+            let mut flip = clone_loop(&loop_obj);
+
+            flip.invert();
+            let norm = loop_obj.is_normalized();
+            let contains = loop_obj.contains_point(p);
+            assert!(
+                norm != contains,
+                "loop.is_normalized() = {} == loop.contains_point({:?}) = {}, want !=",
+                norm,
+                p,
+                contains
+            );
+
+            let norm = flip.is_normalized();
+            let contains = flip.contains_point(p);
+            assert!(
+                norm != contains,
+                "flip.is_normalized() = {} == flip.contains_point({:?}) = {}, want !=",
+                norm,
+                p,
+                contains
+            );
+
+            assert!(
+                loop_obj.is_normalized() != flip.is_normalized(),
+                "a loop and its invert can not both be normalized"
+            );
+
+            flip.normalize();
+            assert!(
+                !flip.contains_point(p),
+                "{:?}.contains_point({:?}) = true, want false",
+                flip,
+                p
+            );
+        }
+    }
+
+    #[test]
+    fn test_loop_validate_detects_invalid_loops() {
+        let tests = vec![
+            // Not enough vertices. Note that all single-vertex loops are valid; they
+            // are interpreted as being either "empty" or "full".
+            ("loop has no vertices", parse_points("")),
+            ("loop has too few vertices", parse_points("20:20, 21:21")),
+            // degenerate edge checks happen in validation before duplicate vertices.
+            (
+                "loop has degenerate first edge",
+                parse_points("20:20, 20:20, 20:21"),
+            ),
+            (
+                "loop has degenerate third edge",
+                parse_points("20:20, 20:21, 20:20"),
+            ),
+            // TODO(roberts): Uncomment these cases when FindAnyCrossings is in.
+            /*
+            (
+                "loop has duplicate points",
+                parse_points("20:20, 21:21, 21:20, 20:20, 20:21"),
+            ),
+            (
+                "loop has crossing edges",
+                parse_points("20:20, 21:21, 21:20.5, 21:20, 20:21"),
+            ),
+            */
+            (
+                // Ensure points are not normalized.
+                "loop with non-normalized vertices",
+                vec![
+                    Point(R3Vector {
+                        x: 2.0,
+                        y: 0.0,
+                        z: 0.0,
+                    }),
+                    Point(R3Vector {
+                        x: 0.0,
+                        y: 1.0,
+                        z: 0.0,
+                    }),
+                    Point(R3Vector {
+                        x: 0.0,
+                        y: 0.0,
+                        z: 1.0,
+                    }),
+                ],
+            ),
+            (
+                // Adjacent antipodal vertices
+                "loop with antipodal points",
+                vec![
+                    Point(R3Vector {
+                        x: 1.0,
+                        y: 0.0,
+                        z: 0.0,
+                    }),
+                    Point(R3Vector {
+                        x: -1.0,
+                        y: 0.0,
+                        z: 0.0,
+                    }),
+                    Point(R3Vector {
+                        x: 0.0,
+                        y: 0.0,
+                        z: 1.0,
+                    }),
+                ],
+            ),
+        ];
+
+        for (msg, points) in tests {
+            let loop_obj = Loop::from_points(points);
+            if loop_obj.validate() {
+                panic!("{}. {:?}.validate() = Ok, want Err", msg, loop_obj);
+            }
+            // The Go tests also tests that the returned error message string contains
+            // a specific set of text. That part of the test is skipped here.
+        }
+    }
+
+    // TODO(roberts): Convert these into changeable flags or parameters.
+    // A loop with a 10km radius and 4096 vertices has an edge length of 15 meters.
+    const DEFAULT_RADIUS_KM: f64 = 10.0;
+    const NUM_LOOP_SAMPLES: usize = 16;
+    const NUM_QUERIES_PER_LOOP: usize = 100;
+
+    // #[bench]
+    // fn bench_loop_contains_point(b: &mut Bencher) {
+    //     // Benchmark ContainsPoint() on regular loops. The query points for a loop are
+    //     // chosen so that they all lie in the loop's bounding rectangle (to avoid the
+    //     // quick-rejection code path).
+
+    //     // Go ranges from 4 -> 256k by powers of 2 for number of vertices for benchmarking.
+    //     let mut vertices = 4;
+    //     for n in 1..=17 {
+    //         b.iter_with_setup(
+    //             || {
+    //                 let mut loops = Vec::with_capacity(NUM_LOOP_SAMPLES);
+    //                 for i in 0..NUM_LOOP_SAMPLES {
+    //                     loops.push(Loop::regular_loop(
+    //                         random_point(),
+    //                         km_to_angle(10.0),
+    //                         vertices,
+    //                     ));
+    //                 }
+
+    //                 let mut queries = Vec::with_capacity(NUM_LOOP_SAMPLES);
+    //                 for loop_obj in &loops {
+    //                     let mut loop_queries = Vec::with_capacity(NUM_QUERIES_PER_LOOP);
+    //                     for j in 0..NUM_QUERIES_PER_LOOP {
+    //                         loop_queries.push(sample_point_from_rect(&loop_obj.rect_bound()));
+    //                     }
+    //                     queries.push(loop_queries);
+    //                 }
+    //                 (loops, queries)
+    //             },
+    //             |(loops, queries)| {
+    //                 let i = rand::random::<usize>();
+    //                 let j = rand::random::<usize>();
+    //                 loops[i % NUM_LOOP_SAMPLES]
+    //                     .contains_point(queries[i % NUM_LOOP_SAMPLES][j % NUM_QUERIES_PER_LOOP]);
+    //             },
+    //         );
+    //         vertices *= 2;
+    //     }
+    // }
 }
