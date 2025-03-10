@@ -65,9 +65,9 @@ pub trait Region {
 ///
 /// Typical usage:
 ///
-///	rc := &s2.RegionCoverer{MaxLevel: 30, MaxCells: 5}
-///	r := s2.Region(CapFromCenterArea(center, area))
-///	covering := rc.Covering(r)
+///    rc := &s2.RegionCoverer{MaxLevel: 30, MaxCells: 5}
+///    r := s2.Region(CapFromCenterArea(center, area))
+///    covering := rc.Covering(r)
 ///
 /// This yields a CellUnion of at most 5 cells that is guaranteed to cover the
 /// given region (a disc-shaped region on the sphere).
