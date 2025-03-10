@@ -2,3 +2,4 @@ target
 Cargo.lock
 *.sw[a-z]
 .aider*
+.*
