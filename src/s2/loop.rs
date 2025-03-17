@@ -101,6 +101,7 @@ impl AddAssign<VertexTraversalDirection> for usize {
 /// chain, they are defined as having exactly one vertex each (see EmptyLoop
 /// and FullLoop).
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Loop {
     /// The vertices of the loop. These should be ordered counterclockwise
     /// around the loop interior.
@@ -126,6 +127,7 @@ pub struct Loop {
     subregion_bound: Rect,
 
     /// index is the spatial index for this Loop.
+    #[cfg_attr(feature = "serde", serde(skip))]
     index: ShapeIndex,
 }
 
@@ -3298,7 +3300,7 @@ mod tests {
             &format!("{:?}.contains({:?}) = true, want false", b, a),
             !b.contains(a),
         );
-        t(      
+        t(
             &format!("{:?}.intersects({:?}) = false, want true", a, b),
             a.intersects(b),
         );

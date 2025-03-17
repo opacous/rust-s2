@@ -599,11 +599,12 @@ pub struct RemovedShape {
 }
 
 // Constants for the ShapeIndex status
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub enum Status {
     Stale,    // There are pending updates.
     Updating, // Updates are currently being applied.
-    Fresh,    // There are no pending updates.
+    #[default]
+    Fresh, // There are no pending updates.
 }
 
 // ShapeIndex indexes a set of Shapes, where a Shape is some collection of edges
@@ -629,7 +630,7 @@ pub enum Status {
 //	}
 //	// Now you can use a CrossingEdgeQuery or ClosestEdgeQuery here.
 // #[derive(Debug)]
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ShapeIndex {
     // RwLock protected data
     index_data: Arc<RwLock<ShapeIndexData>>,
@@ -655,6 +656,7 @@ impl ShapeIndex {
 
 // ShapeIndexData contains all the data fields for the shape index.
 // These fields are protected by a mutex in the ShapeIndex struct.
+#[derive(Default)]
 struct ShapeIndexData {
     // shapes is a map of shape ID to shape.
     shapes: HashMap<i32, ShapeType>,

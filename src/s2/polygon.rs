@@ -64,10 +64,12 @@ use std::hash::{Hash, Hasher};
 ///
 ///   - No loop may be empty. The full loop may appear only in the full polygon.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Polygon {
     loops: Vec<Loop>,
 
     // index is a spatial index of all the polygon loops.
+    #[cfg_attr(feature = "serde", serde(skip))]
     index: ShapeIndex,
 
     // has_holes tracks if this polygon has at least one hole.
