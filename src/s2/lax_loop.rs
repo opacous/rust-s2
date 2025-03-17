@@ -24,6 +24,7 @@ use crate::shape::{Chain, ChainPosition, Edge, ReferencePoint, Shape};
 /// Note that LaxLoop is faster to initialize and more compact than
 /// Loop, but does not support the same operations as Loop.
 #[derive(Debug, Clone, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct LaxLoop {
     pub vertices: Vec<Point>,
 }
