@@ -3300,7 +3300,8 @@ mod tests {
             &format!("{:?}.contains({:?}) = true, want false", b, a),
             !b.contains(a),
         );
-        t(
+
+        t(      
             &format!("{:?}.intersects({:?}) = false, want true", a, b),
             a.intersects(b),
         );
