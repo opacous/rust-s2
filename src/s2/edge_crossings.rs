@@ -442,6 +442,7 @@ pub fn angle_contains_vertex(a: &Point, b: &Point, c: &Point) -> bool {
 mod tests {
     use super::*;
     use crate::consts::DBL_EPSILON;
+    use crate::edgeutil::distance_from_segment;
     use crate::r3::vector::Vector;
     use crate::s1::angle::Angle;
 
@@ -458,86 +459,6 @@ mod tests {
             x = Point(x.0.mul(-1.0));
         }
         x
-    }
-
-    // DistanceFromSegment returns the distance from point X to line segment AB.
-    fn distance_from_segment(x: &Point, a: &Point, b: &Point) -> Angle {
-        // We compute the distance using the standard formula for the distance from a
-        // point X to a line segment AB:
-        //
-        // (1) If the line AB is degenerate, return the distance to the closest endpoint.
-        //
-        // (2) Otherwise, if the projection of X onto the line AB is outside the range
-        // [0,1], then return the distance to the closest endpoint.
-        //
-        // (3) Otherwise, return the perpendicular distance from X to the line AB.
-        //
-        // Note that the projection parameter is the dot product of the unit vector in
-        // the direction AB with the vector AX, where both vectors are treated as
-        // Euclidean (not spherical).
-
-        println!(
-            "Computing distance from {:?} to segment [{:?}, {:?}]",
-            x, a, b
-        );
-
-        if a == b {
-            let dist = x.distance(a);
-            println!(
-                "Degenerate segment, returning distance to endpoint: {}",
-                dist.0
-            );
-            return dist;
-        }
-
-        let ab = b.0.sub(a.0);
-        let ax = x.0.sub(a.0);
-        let ab_norm2 = ab.norm2();
-        let ax_dot_ab = ax.dot(&ab);
-
-        println!("ab_norm2: {}", ab_norm2);
-        println!("ax_dot_ab: {}", ax_dot_ab);
-
-        // Handle cases (2) and (3).
-        if ax_dot_ab <= 0.0 {
-            let dist = x.distance(a);
-            println!("Closest to endpoint A, distance: {}", dist.0);
-            return dist;
-        }
-        if ax_dot_ab >= ab_norm2 {
-            let dist = x.distance(b);
-            println!("Closest to endpoint B, distance: {}", dist.0);
-            return dist;
-        }
-
-        // The closest point is the projection of X onto AB.
-        // For numerical stability, we need to be careful with the normalization step
-        // when dealing with points that are extremely close to each other.
-        let p = a.0.add(ab.mul(ax_dot_ab / ab_norm2));
-
-        // Check if p is already very close to a unit vector
-        let p_norm = p.norm();
-        let normalized_p = if (p_norm - 1.0).abs() < DBL_EPSILON {
-            // If p is already very close to a unit vector, avoid normalization
-            p
-        } else {
-            p.normalize()
-        };
-
-        println!("Projection point before normalization: {:?}", p);
-        println!("Projection point after normalization: {:?}", normalized_p);
-
-        // For very small distances, we need to be careful with floating point precision
-        // First check if the points are extremely close
-        let direct_dist = x.0.sub(normalized_p).norm();
-        if direct_dist < DBL_EPSILON {
-            println!("Points are extremely close, returning minimal distance");
-            return Angle(0.0);
-        }
-
-        let dist = x.distance(&Point(normalized_p));
-        println!("Distance to projection: {}", dist.0);
-        return dist;
     }
 
     // Returns a random orthonormal frame (three orthogonal unit-length vectors).
@@ -564,15 +485,6 @@ mod tests {
         let third = Point(dir.0.cross(&ortho.0));
 
         let frame = [dir, ortho, third];
-
-        println!("Random frame:");
-        println!("  f[0] (p): {:?}, norm: {}", frame[0], frame[0].0.norm());
-        println!("  f[1] (d1): {:?}, norm: {}", frame[1], frame[1].0.norm());
-        println!("  f[2] (d2): {:?}, norm: {}", frame[2], frame[2].0.norm());
-        println!("  Orthogonality check:");
-        println!("    f[0]·f[1]: {}", frame[0].0.dot(&frame[1].0));
-        println!("    f[0]·f[2]: {}", frame[0].0.dot(&frame[2].0));
-        println!("    f[1]·f[2]: {}", frame[1].0.dot(&frame[2].0));
 
         frame
     }
@@ -755,23 +667,25 @@ mod tests {
             let dist_expected_cd = distance_from_segment(&expected, &c, &d);
             assert!(
                 dist_expected_cd <= want_dist_expected,
-                "DistanceFromSegment({:?}, {:?}, {:?}) = {:.32}, want <= {:.32}",
+                "DistanceFromSegment({:?}, {:?}, {:?}) = {:.32}, want <= {:.32}, there is a {} OOM difference",
                 expected,
                 c,
                 d,
                 dist_expected_cd.0,
-                want_dist_expected.0
+                want_dist_expected.0,
+                (want_dist_expected.0 - dist_expected_cd.0).log10().abs()
             );
 
             let dist_expected_p = expected.distance(&p);
             let want_dist_p = Angle(3.0 * DBL_EPSILON / slope) + Angle(INTERSECTION_ERROR);
             assert!(
                 dist_expected_p <= want_dist_p,
-                "{:?}.Distance({:?}) = {:.32}, want <= {:.32}",
+                "{:?}.Distance({:?}) = {:.32}, want <= {:.32}, there is a {} OOM difference",
                 expected,
                 p,
                 dist_expected_p.0,
-                want_dist_p.0
+                want_dist_p.0,
+                (want_dist_p.0 - dist_expected_p.0).log10().abs()
             );
 
             // Now we actually test the Intersection() method.

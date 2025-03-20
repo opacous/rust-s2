@@ -19,14 +19,12 @@ use bigdecimal;
 use bigdecimal::{FromPrimitive, ToPrimitive};
 use std::str::FromStr;
 
-pub fn prec_str(s: String) -> bigdecimal::BigDecimal {
-    bigdecimal::BigDecimal::from_str(&s).unwrap()
-}
-
 pub fn prec_int(i: i64) -> bigdecimal::BigDecimal {
     bigdecimal::BigDecimal::from(i)
 }
 
+/// Create a precise vector from a floating-point value. But because how the library is setup,
+/// unwrap here is unavoidable.
 pub fn prec_float(f: f64) -> bigdecimal::BigDecimal {
     bigdecimal::BigDecimal::from_f64(f).unwrap()
 }

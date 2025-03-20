@@ -135,6 +135,7 @@ impl std::ops::Mul<i64> for Vector {
 
 use std::cmp::*;
 use std::hash::{Hash, Hasher};
+use std::ops::Mul;
 
 impl Eq for Vector {}
 
@@ -188,7 +189,7 @@ impl Vector {
 
     /// norm returns the vector's norm.
     pub fn norm(&self) -> f64 {
-        self.norm2().sqrt()
+        self.dot(self).sqrt()
     }
 
     /// norm2 returns the square of the norm.
@@ -198,16 +199,21 @@ impl Vector {
 
     /// normalize returns a unit vector in the same direction as v.
     pub fn normalize(&self) -> Self {
-        if self.x == 0. && self.y == 0. && self.z == 0. {
-            *self
-        } else {
-            self * (1.0 / self.norm())
+        
+        let n2 = self.norm2();
+        println!("n2: {:.24}", n2);
+        if n2 == 0. {
+            return Vector::new(0., 0., 0.);
         }
+        println!("n2 sqrt: {:.24}", n2.sqrt());
+        self.mul(1. / n2.sqrt())
     }
 
     /// dot returns the standard dot product of v and ov.
     pub fn dot(&self, other: &Self) -> f64 {
+        
         self.x * other.x + self.y * other.y + self.z * other.z
+        
     }
 
     /// is_unit returns whether this vector is of approximately unit length.

@@ -361,12 +361,7 @@ mod tests {
             println!("Creating origin point (0,0,0)");
             return ORIGIN;
         }
-        let normalized = Vector::new(x, y, z).normalize();
-        println!(
-            "Creating point ({}, {}, {}) -> normalized: ({}, {}, {})",
-            x, y, z, normalized.x, normalized.y, normalized.z
-        );
-        Point(normalized)
+        Point::from_coords(x,y,z)
     }
 
     // Helper function to test crossing with different combinations
@@ -543,35 +538,35 @@ mod tests {
             (
                 "two edges that barely cross each other near the end of both edges",
                 point(0.0, 0.0, 1.0),
-                point(2.0, -1e-323, 1.0),
+                point(2.0, -f64::MIN_POSITIVE, 1.0),
                 point(1.0, -1.0, 1.0),
-                point(1e-323, 0.0, 1.0),
+                point(f64::MIN_POSITIVE, 0.0, 1.0),
                 Crossing::Cross,
                 true,
             ),
             (
                 "two edges that barely cross each other near the end separated by a distance of about 1e-640",
                 point(0.0, 0.0, 1.0),
-                point(2.0, 1e-323, 1.0),
+                point(2.0, f64::MIN_POSITIVE, 1.0),
                 point(1.0, -1.0, 1.0),
-                point(1e-323, 0.0, 1.0),
+                point(f64::MIN_POSITIVE, 0.0, 1.0),
                 Crossing::DoNotCross,
                 false,
             ),
             (
                 "two edges that barely cross each other near the middle of one edge",
-                point(1.0, -1e-323, -1e-323),
-                point(1e-323, 1.0, 1e-323),
-                point(1.0, -1.0, 1e-323),
+                point(1.0, -f64::MIN_POSITIVE, -f64::MIN_POSITIVE),
+                point(f64::MIN_POSITIVE, 1.0, f64::MIN_POSITIVE),
+                point(1.0, -1.0, f64::MIN_POSITIVE),
                 point(1.0, 1.0, 0.0),
                 Crossing::Cross,
                 true,
             ),
             (
                 "two edges that barely cross each other near the middle separated by a distance of about 1e-640",
-                point(1.0, 1e-323, -1e-323),
-                point(-1e-323, 1.0, 1e-323),
-                point(1.0, -1.0, 1e-323),
+                point(1.0, f64::MIN_POSITIVE, -f64::MIN_POSITIVE),
+                point(-f64::MIN_POSITIVE, 1.0, f64::MIN_POSITIVE),
+                point(1.0, -1.0, f64::MIN_POSITIVE),
                 point(1.0, 1.0, 0.0),
                 Crossing::DoNotCross,
                 false,
@@ -579,12 +574,6 @@ mod tests {
         ];
 
         for (msg, a, b, c, d, robust, edge_or_vertex) in tests {
-            // Normalize the points
-            let a = Point(a.0.normalize());
-            let b = Point(b.0.normalize());
-            let c = Point(c.0.normalize());
-            let d = Point(d.0.normalize());
-
             // Test all combinations
             test_crossing(msg, a, b, c, d, robust, edge_or_vertex);
             test_crossing(msg, b, a, c, d, robust, edge_or_vertex);

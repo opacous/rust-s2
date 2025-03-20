@@ -10,6 +10,8 @@ use crate::s2::shape_index::{CellRelation, ShapeIndex, ShapeIndexCell, ShapeInde
 use crate::shape::ShapeType;
 use std::collections::{HashMap, HashSet};
 
+use super::error::{S2Error, S2Result};
+
 /// CrossingType specifies the types of edge crossings to be reported.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum CrossingType {
@@ -104,10 +106,15 @@ impl<'a> CrossingEdgeQuery<'a> {
     ///
     /// The edges are returned as a mapping from shape to the edges of that shape
     /// that intersect AB. Every returned shape has at least one crossing edge.
-    pub fn crossings_edge_map(&mut self, a: Point, b: Point, cross_type: CrossingType) -> EdgeMap {
-        let mut edge_map = self.candidates_edge_map(a, b);
+    pub fn crossings_edge_map(
+        &mut self,
+        a: Point,
+        b: Point,
+        cross_type: CrossingType,
+    ) -> S2Result<EdgeMap> {
+        let mut edge_map = self.candidates_edge_map(a, b)?;
         if edge_map.is_empty() {
-            return edge_map;
+            return Ok(edge_map);
         }
 
         let mut crosser = EdgeCrosser::new(&a, &b);
@@ -140,7 +147,7 @@ impl<'a> CrossingEdgeQuery<'a> {
             }
         });
 
-        edge_map
+        Ok(edge_map)
     }
 
     /// Returns a superset of the edges of the given shape that intersect
@@ -180,7 +187,7 @@ impl<'a> CrossingEdgeQuery<'a> {
 
     /// Returns a map from shapes to a superset of edges for that shape
     /// that intersect the edge AB.
-    pub fn candidates_edge_map(&mut self, a: Point, b: Point) -> EdgeMap {
+    pub fn candidates_edge_map(&mut self, a: Point, b: Point) -> S2Result<EdgeMap> {
         let _shape = self.index.shape(0).as_ref().cloned();
 
         // If there are only a few edges then it's faster to use brute force. We
@@ -190,13 +197,15 @@ impl<'a> CrossingEdgeQuery<'a> {
             // whether the edge map is empty or already consists of a single entry for
             // this shape, and skip clearing edge map in that case.
             let shape = self.index.shape(0).as_ref().cloned();
-            let inner_shape = shape.unwrap();
+            let inner_shape = shape.ok_or(
+                S2Error::Other("Shape Index doesn't contain id 0 shape - which usually means that it is initialized improperly".to_string())
+            )?;
 
             // Note that we leave the edge map non-empty even if there are no candidates
             // (i.e., there is a single entry with an empty set of edges).
             let mut edge_map: EdgeMap = HashMap::new();
             edge_map.insert(inner_shape.clone(), self.candidates(a, b, &inner_shape));
-            return edge_map;
+            return Ok(edge_map);
         }
 
         let mut edge_map: EdgeMap = HashMap::new();
@@ -204,7 +213,7 @@ impl<'a> CrossingEdgeQuery<'a> {
         // Compute the set of index cells intersected by the query edge.
         self.get_cells_for_edge(a, b);
         if self.cells.is_empty() {
-            return edge_map;
+            return Ok(edge_map);
         }
 
         // Gather all the edges that intersect those cells.
@@ -225,7 +234,7 @@ impl<'a> CrossingEdgeQuery<'a> {
             }
         }
 
-        edge_map
+        Ok(edge_map)
     }
 
     /// Returns a sorted list of unique integers from the input slice.

@@ -408,6 +408,7 @@ mod tests {
     use crate::s2::random;
 
     use rand::Rng;
+    use s2::error::S2Error;
     use std::f64;
 
     #[test]
@@ -463,7 +464,7 @@ mod tests {
     // }
 
     #[test]
-    fn test_trivial_padded_cell_methods() {
+    fn test_trivial_padded_cell_methods() -> Result<(), S2Error> {
         // Test the PaddedCell methods that have approximate Cell equivalents.
         let cid = CellID(0x85dac80c08257ff0);
         println!("{:#x}", cid.0);
@@ -505,9 +506,11 @@ mod tests {
         assert_eq!(cell.id.center_point(), p_cell.center(), "center mismatch");
 
         if cid.is_leaf() {
-            return;
+            return Ok(());
         }
-        let children = cell.children().unwrap();
+        let children = cell
+            .children()
+            .ok_or(S2Error::Other("Failed to get children".to_string()))?;
         for pos in 0..4 {
             let (i, j) = p_cell.child_ij(pos);
             println!("{}th child now!", pos);
@@ -578,10 +581,12 @@ mod tests {
                 "child center mismatch"
             );
         }
+
+        Ok(())
     }
 
     #[test]
-    fn test_padded_cell_methods() {
+    fn test_padded_cell_methods() -> Result<(), S2Error> {
         // Test the PaddedCell methods that have approximate Cell equivalents.
         let mut rng = random::rng();
 
@@ -611,7 +616,9 @@ mod tests {
                 continue;
             }
 
-            let children = cell.children().unwrap();
+            let children = cell
+                .children()
+                .ok_or(S2Error::Other("Failed to get children".to_string()))?;
             for pos in 0..4 {
                 let (i, j) = p_cell.child_ij(pos);
 
@@ -644,6 +651,8 @@ mod tests {
                 );
             }
         }
+
+        Ok(())
     }
 
     #[test]

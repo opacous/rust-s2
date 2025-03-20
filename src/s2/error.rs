@@ -10,6 +10,8 @@ pub enum S2Error {
     InvalidArgument(String),
     /// Error during encoding/decoding
     EncodingError(String),
+    /// Locking error, usually something to do with the iterator and its concurrent access/write
+    LockingError(String),
     /// Generic error with message
     Other(String),
 }
@@ -20,6 +22,7 @@ impl fmt::Display for S2Error {
             S2Error::InvalidLoop(msg) => write!(f, "Invalid loop: {}", msg),
             S2Error::InvalidArgument(msg) => write!(f, "Invalid argument: {}", msg),
             S2Error::EncodingError(msg) => write!(f, "Encoding error: {}", msg),
+            S2Error::LockingError(msg) => write!(f, "Locking error: {}", msg),
             S2Error::Other(msg) => write!(f, "{}", msg),
         }
     }
