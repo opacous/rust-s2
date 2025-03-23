@@ -14,6 +14,7 @@ use crate::shape_index::Status::Fresh;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Debug, Formatter};
 use std::ops::Sub;
+use std::ptr::write;
 use std::sync::{Arc, RwLock};
 
 // edgeClipErrorUVCoord is the maximum error in a u- or v-coordinate
@@ -643,8 +644,14 @@ pub struct ShapeIndex {
 }
 
 impl Debug for ShapeIndex {
-    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
-        unimplemented!("Debugging formatting for ShapeIndex - it is never going to be comprehensive but it is useful for debugging")
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{{ShapeIndex:{{IndexData:{:?}, Status:{:?}, MaxEdgesPerCell: {}}}}}",
+            &self.index_data.read().unwrap(),
+            &self.status.read(),
+            self.max_edges_per_cell
+        )
     }
 }
 
@@ -656,7 +663,7 @@ impl ShapeIndex {
 
 // ShapeIndexData contains all the data fields for the shape index.
 // These fields are protected by a mutex in the ShapeIndex struct.
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct ShapeIndexData {
     // shapes is a map of shape ID to shape.
     shapes: HashMap<i32, ShapeType>,
