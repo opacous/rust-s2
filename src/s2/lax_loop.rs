@@ -15,6 +15,9 @@
 use crate::s2::point::Point;
 use crate::shape::{Chain, ChainPosition, Edge, ReferencePoint, Shape};
 
+use super::rect_bounder::RectBounder;
+use super::region::Region;
+
 /// LaxLoop represents a closed loop of edges surrounding an interior
 /// region. It is similar to Loop except that this class allows
 /// duplicate vertices and edges. Loops may have any number of vertices,
@@ -44,6 +47,20 @@ impl LaxLoop {
     /// Returns the vertex at the specified index.
     pub fn vertex(&self, i: usize) -> Point {
         self.vertices[i]
+    }
+}
+
+impl Region for LaxLoop {
+    fn cap_bound(&self) -> super::cap::Cap {
+        self.rect_bound().cap_bound()
+    }
+
+    fn rect_bound(&self) -> super::rect::Rect {
+        let mut bounder = RectBounder::new();
+        for v in self.vertices.iter() {
+            bounder.add_point(v);
+        }
+        bounder.get_bound()
     }
 }
 
