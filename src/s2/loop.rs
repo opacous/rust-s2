@@ -493,19 +493,6 @@ impl Loop {
         self.vertices.len()
     }
 
-    /// Returns a tight bounding rectangle. If the loop contains the point,
-    /// the bound also contains it.
-    pub fn rect_bound(&self) -> Rect {
-        self.bound.clone()
-    }
-
-    /// Returns a bounding cap that may have more padding than the corresponding
-    /// RectBound. The bound is conservative such that if the loop contains a point P,
-    /// the bound also contains it.
-    pub fn cap_bound(&self) -> Cap {
-        self.bound.cap_bound()
-    }
-
     /// Returns whether this loop represents a hole in its containing polygon.
     pub fn is_hole(&self) -> bool {
         (self.depth & 1) != 0
@@ -767,6 +754,21 @@ impl Loop {
             j = self.vertices.len() - 1 - j;
         }
         self.vertex(j)
+    }
+}
+
+impl Region for Loop {
+    /// Returns a tight bounding rectangle. If the loop contains the point,
+    /// the bound also contains it.
+    fn rect_bound(&self) -> Rect {
+        self.bound.clone()
+    }
+
+    /// Returns a bounding cap that may have more padding than the corresponding
+    /// RectBound. The bound is conservative such that if the loop contains a point P,
+    /// the bound also contains it.
+    fn cap_bound(&self) -> Cap {
+        self.bound.cap_bound()
     }
 }
 
@@ -3301,7 +3303,7 @@ mod tests {
             !b.contains(a),
         );
 
-        t(      
+        t(
             &format!("{:?}.intersects({:?}) = false, want true", a, b),
             a.intersects(b),
         );
