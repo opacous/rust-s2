@@ -647,8 +647,7 @@ impl Debug for ShapeIndex {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{{ShapeIndex:{{IndexData:{:?}, Status:{:?}, MaxEdgesPerCell: {}}}}}",
-            &self.index_data.read().unwrap(),
+            "{{ShapeIndex:{{Status:{:?}, MaxEdgesPerCell: {}}}}}",
             &self.status.read(),
             self.max_edges_per_cell
         )
@@ -1747,4 +1746,15 @@ fn contains_brute_force(shape: ShapeType, _point: Point) -> bool {
     }
 
     todo!("Contains brute force for Point in ShapeType is NOT implemented")
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn test_debug_shapeindex() {
+        format!("{:?}", ShapeIndex::new());
+    }
 }
