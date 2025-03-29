@@ -677,68 +677,6 @@ impl Polygon {
         Ok(())
     }
 
-    // Implement the Region trait
-
-    /// cap_bound returns a bounding spherical cap.
-    pub fn cap_bound(&self) -> Cap {
-        self.bound.cap_bound()
-    }
-
-    /// rect_bound returns a bounding latitude-longitude rectangle.
-    pub fn rect_bound(&self) -> Rect {
-        self.bound.clone()
-    }
-
-    /// contains_point reports whether the polygon contains the point.
-    pub fn contains_point(&self, point: &Point) -> bool {
-        // NOTE: A bounds check slows down this function by about 50%. It is
-        // worthwhile only when it might allow us to delay building the index.
-        if !self.index.is_fresh() && !self.bound.contains_point(point) {
-            return false;
-        }
-
-        // For small polygons, and during initial construction, it is faster to just
-        // check all the crossings.
-        const MAX_BRUTE_FORCE_VERTICES: usize = 32;
-        if self.num_vertices < MAX_BRUTE_FORCE_VERTICES || self.index.is_empty() {
-            let mut inside = false;
-            for l in &self.loops {
-                // use loops brute force to avoid building the index on each loop.
-                inside = inside != l.brute_force_contains_point(point);
-            }
-            return inside;
-        }
-
-        // Otherwise we look up the ShapeIndex cell containing this point.
-        // TODO: Implement ContainsPointQuery
-        // return NewContainsPointQuery(p.index, VertexModelSemiOpen).Contains(point)
-        false // Placeholder
-    }
-
-    /// contains_cell reports whether the polygon contains the given cell.
-    pub fn contains_cell(&self, cell: &Cell) -> bool {
-        let mut it = self.index.iterator();
-        let relation = it.locate_cell_id(cell.id);
-
-        // If "cell" is disjoint from all index cells, it is not contained.
-        // Similarly, if "cell" is subdivided into one or more index cells then it
-        // is not contained, since index cells are subdivided only if they (nearly)
-        // intersect a sufficient number of edges. (But note that if "cell" itself
-        // is an index cell then it may be contained, since it could be a cell with
-        // no edges in the loop interior.)
-        if relation != Indexed {
-            return false;
-        }
-
-        // Otherwise check if any edges intersect "cell".
-        if self.boundary_approx_intersects(&mut it, cell) {
-            return false;
-        }
-
-        // Otherwise check if the loop contains the center of "cell".
-        self.iterator_contains_point(&it, &cell.center())
-    }
-
     /// intersects_cell reports whether the polygon intersects the given cell.
     pub fn intersects_cell(&self, cell: &Cell) -> bool {
         let mut it = self.index.iterator();
@@ -842,6 +780,70 @@ impl Polygon {
         }
 
         inside
+    }
+
+    /// contains_point reports whether the polygon contains the point.
+    pub fn contains_point(&self, point: &Point) -> bool {
+        // NOTE: A bounds check slows down this function by about 50%. It is
+        // worthwhile only when it might allow us to delay building the index.
+        if !self.index.is_fresh() && !self.bound.contains_point(point) {
+            return false;
+        }
+
+        // For small polygons, and during initial construction, it is faster to just
+        // check all the crossings.
+        const MAX_BRUTE_FORCE_VERTICES: usize = 32;
+        if self.num_vertices < MAX_BRUTE_FORCE_VERTICES || self.index.is_empty() {
+            let mut inside = false;
+            for l in &self.loops {
+                // use loops brute force to avoid building the index on each loop.
+                inside = inside != l.brute_force_contains_point(point);
+            }
+            return inside;
+        }
+
+        // Otherwise we look up the ShapeIndex cell containing this point.
+        // TODO: Implement ContainsPointQuery
+        // return NewContainsPointQuery(p.index, VertexModelSemiOpen).Contains(point)
+        false // Placeholder
+    }
+}
+
+impl Region for Polygon {
+    // Implement the Region trait
+
+    /// cap_bound returns a bounding spherical cap.
+    fn cap_bound(&self) -> Cap {
+        self.bound.cap_bound()
+    }
+
+    /// rect_bound returns a bounding latitude-longitude rectangle.
+    fn rect_bound(&self) -> Rect {
+        self.bound.clone()
+    }
+
+    /// contains_cell reports whether the polygon contains the given cell.
+    fn contains_cell(&self, cell: &Cell) -> bool {
+        let mut it = self.index.iterator();
+        let relation = it.locate_cell_id(cell.id);
+
+        // If "cell" is disjoint from all index cells, it is not contained.
+        // Similarly, if "cell" is subdivided into one or more index cells then it
+        // is not contained, since index cells are subdivided only if they (nearly)
+        // intersect a sufficient number of edges. (But note that if "cell" itself
+        // is an index cell then it may be contained, since it could be a cell with
+        // no edges in the loop interior.)
+        if relation != Indexed {
+            return false;
+        }
+
+        // Otherwise check if any edges intersect "cell".
+        if self.boundary_approx_intersects(&mut it, cell) {
+            return false;
+        }
+
+        // Otherwise check if the loop contains the center of "cell".
+        self.iterator_contains_point(&it, &cell.center())
     }
 }
 
