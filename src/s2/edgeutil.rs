@@ -205,7 +205,7 @@ fn update_max_distance(
     b: &Point,
     max_dist: ChordAngle,
 ) -> (ChordAngle, bool) {
-    let mut dist = Point::chordangle(x, a).max(Point::chordangle(x, b));
+    let mut dist = Point::chord_angle_between_points(x, a).max(Point::chord_angle_between_points(x, b));
 
     if dist > chordangle::RIGHT {
         let (dist2, _) = update_min_distance(&Point(x.0.mul(-1.)), a, b, dist, true);

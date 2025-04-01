@@ -5,10 +5,14 @@
 
 /// EPSILON is a small number that represents a reasonable level of noise between two
 /// values that can be considered to be equal.
+/// TODO: make this as good as e-15
 pub const EPSILON: f64 = 1e-14;
 
 /// DBL_EPSILON is a smaller number for values that require more precision.
-pub const DBL_EPSILON: f64 = 2.220446049250313e-16;
+pub const DBL_EPSILON: f64 = 2.220446049250313e-15;
+
+/// DBL_ERROR is the C++ value for S2 rounding_epsilon().
+pub const DBL_ERROR: f64 = 1.110223024625156e-15;
 
 #[macro_export]
 macro_rules! f64_eq {

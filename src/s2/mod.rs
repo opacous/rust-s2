@@ -25,6 +25,7 @@ pub mod crossing_edge_query;
 mod edge_clipping;
 mod edge_crosser;
 mod edge_crossings;
+pub mod edge_distance;
 pub mod error;
 pub mod lax_loop;
 pub mod padded_cell;

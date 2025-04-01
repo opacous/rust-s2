@@ -15,10 +15,11 @@
 use std::cmp::Ordering;
 use std::ops::{Add, Mul, Sub};
 
-use crate::consts::{DBL_EPSILON, EPSILON};
+use crate::consts::{DBL_EPSILON, DBL_ERROR, EPSILON};
 use crate::point::{ordered_ccw, Point};
 use crate::r3::precisevector::PreciseVector;
 use crate::r3::vector::*;
+use crate::s1::Angle;
 pub(crate) use crate::s2::edge_crosser::EdgeCrosser;
 
 // intersectionError can be set somewhat arbitrarily, because the algorithm
@@ -27,7 +28,7 @@ pub(crate) use crate::s2::edge_crosser::EdgeCrosser;
 // radians. However, using a larger error tolerance makes the algorithm more
 // efficient because it reduces the number of cases where exact arithmetic is
 // needed.
-static INTERSECTION_ERROR: f64 = 8.0 * DBL_EPSILON;
+static INTERSECTION_ERROR: Angle = Angle(8.0 * DBL_ERROR);
 
 // intersectionMergeRadius is used to ensure that intersection points that
 // are supposed to be coincident are merged back together into a single
@@ -35,7 +36,7 @@ static INTERSECTION_ERROR: f64 = 8.0 * DBL_EPSILON;
 // intersection, etc) to work correctly. It is twice the intersection error
 // because two coincident intersection points might have errors in
 // opposite directions.
-static INTERSECTION_MERGE_RADIUS: f64 = 16.0 * DBL_EPSILON;
+static INTERSECTION_MERGE_RADIUS: Angle = Angle(2.0 * INTERSECTION_ERROR.0);
 
 // A Crossing indicates how edges cross.
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -339,7 +340,7 @@ fn intersect_stable_sorted(a0: &Point, a1: &Point, b0: &Point, b1: &Point) -> Re
     // Finally we normalize the result, compute the corresponding error, and
     // check whether the total error is acceptable.
     let x_len = x.norm();
-    if err > (INTERSECTION_ERROR - EPSILON) * x_len {
+    if err > (INTERSECTION_ERROR.0 - EPSILON) * x_len {
         return Err(pt);
     }
 
@@ -764,7 +765,7 @@ mod tests {
             );
 
             let dist_expected_p = expected.distance(&p);
-            let want_dist_p = Angle(3.0 * DBL_EPSILON / slope) + Angle(INTERSECTION_ERROR);
+            let want_dist_p = Angle(3.0 * DBL_EPSILON / slope) + INTERSECTION_ERROR;
             assert!(
                 dist_expected_p <= want_dist_p,
                 "{:?}.Distance({:?}) = {:.32}, want <= {:.32}",
@@ -780,7 +781,7 @@ mod tests {
             let dist_cd = distance_from_segment(&actual, &c, &d);
             let point_dist = expected.distance(&actual);
 
-            let want_dist_intersection = Angle(INTERSECTION_ERROR) + distance_abs_error;
+            let want_dist_intersection = INTERSECTION_ERROR + distance_abs_error;
             assert!(
                 dist_ab <= want_dist_intersection,
                 "DistanceFromSegment({:?}, {:?}, {:?}) = {:.32}, want <= {:.32}",
@@ -801,7 +802,7 @@ mod tests {
                 want_dist_intersection.0
             );
 
-            let want_point_dist = Angle(INTERSECTION_ERROR);
+            let want_point_dist = INTERSECTION_ERROR;
             assert!(
                 point_dist <= want_point_dist,
                 "{:?}.Distance({:?}) = {:.32}, want <= {:.32}",

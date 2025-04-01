@@ -423,7 +423,7 @@ pub fn planar_centroid(a: &Point, b: &Point, c: &Point) -> Point {
 impl Point {
     /// chordangle constructs a ChordAngle corresponding to the distance
     /// between the two given points. The points must be unit length.
-    pub fn chordangle(&self, other: &Point) -> ChordAngle {
+    pub fn chord_angle_between_points(&self, other: &Point) -> ChordAngle {
         ChordAngle(4f64.min((self.0 - other.0).norm2()))
     }
 }
@@ -592,17 +592,17 @@ mod tests {
             let y: Point = m.y.into();
             let z: Point = m.z.into();
 
-            assert_eq!(0., Angle::from(z.chordangle(&z)).rad());
+            assert_eq!(0., Angle::from(z.chord_angle_between_points(&z)).rad());
             assert!(
-                f64_near(PI, Angle::from((&z * -1.).chordangle(&z)).rad(), 1e-7),
+                f64_near(PI, Angle::from((&z * -1.).chord_angle_between_points(&z)).rad(), 1e-7),
                 "{} != {}",
                 PI,
-                Angle::from((&z * -1.).chordangle(&z)).rad()
+                Angle::from((&z * -1.).chord_angle_between_points(&z)).rad()
             );
-            assert_f64_eq!(PI / 2., Angle::from(x.chordangle(&z)).rad());
+            assert_f64_eq!(PI / 2., Angle::from(x.chord_angle_between_points(&z)).rad());
 
             let w = (&y + &z).normalize();
-            assert_f64_eq!(PI / 4., Angle::from(w.chordangle(&z)).rad());
+            assert_f64_eq!(PI / 4., Angle::from(w.chord_angle_between_points(&z)).rad());
         }
     }
 
