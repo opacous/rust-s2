@@ -56,6 +56,9 @@ pub const RIGHT: ChordAngle = ChordAngle(2f64);
 /// This is the maximum finite chord angle.
 pub const STRAIGHT: ChordAngle = ChordAngle(4f64);
 
+/// ZERO represents a chord angle of 0 degrees. HMM is this even right?
+pub const ZERO: ChordAngle = ChordAngle(0f64);
+
 // MAXLENGTH2 is the square of the maximum length allowed in a ChordAngle.
 pub const MAXLENGTH2: f64 = 4.0;
 
